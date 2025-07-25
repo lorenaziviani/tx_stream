@@ -11,12 +11,19 @@ import (
 
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
+
+	"github.com/lorenaziviani/txstream/internal/infrastructure/database"
 )
 
 func main() {
 	if err := godotenv.Load(); err != nil {
-		log.Println(".env file not found, using system environment variables")
+		log.Println("File .env not found, using system environment variables")
 	}
+
+	if err := database.InitializeDatabase(); err != nil {
+		log.Fatalf("Error initializing database: %v", err)
+	}
+	defer database.CloseDatabase()
 
 	router := mux.NewRouter()
 
@@ -58,10 +65,10 @@ func main() {
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		log.Printf("Erro durante shutdown: %v", err)
+		log.Printf("Error during shutdown: %v", err)
 	}
 
-	log.Println("✅ Servidor encerrado com sucesso")
+	log.Println("Server shutdown successfully")
 }
 
 func setupAPIRoutes(router *mux.Router) {
@@ -86,7 +93,23 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func readinessCheckHandler(w http.ResponseWriter, r *http.Request) {
-	// TODO: Check database and Kafka connectivity
+	db := database.GetDB()
+	if db == nil {
+		http.Error(w, `{"status": "not ready", "error": "database not connected"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		http.Error(w, `{"status": "not ready", "error": "database connection error"}`, http.StatusServiceUnavailable)
+		return
+	}
+
+	if err := sqlDB.Ping(); err != nil {
+		http.Error(w, `{"status": "not ready", "error": "database ping failed"}`, http.StatusServiceUnavailable)
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status": "ready", "service": "txstream", "timestamp": "` + time.Now().Format(time.RFC3339) + `"}`))

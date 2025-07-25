@@ -51,13 +51,7 @@ cp .env.example .env
 # Edite o arquivo .env com suas configurações
 ```
 
-4. Execute as migrações:
-
-```bash
-go run cmd/migrate/main.go
-```
-
-5. Inicie o servidor:
+4. Inicie o servidor (as migrações são executadas automaticamente):
 
 ```bash
 go run cmd/txstream/main.go
@@ -69,12 +63,15 @@ go run cmd/txstream/main.go
 txstream/
 ├── cmd/
 │   ├── txstream/          # Aplicação principal
-│   └── migrate/           # Ferramenta de migração
+│   └── migrate/           # Ferramenta de migração (legado)
 ├── internal/
 │   ├── domain/            # Entidades e regras de negócio
 │   ├── application/       # Casos de uso
 │   └── infrastructure/    # Implementações externas
-├── migrations/            # Migrações do banco de dados
+│       ├── models/        # Modelos GORM
+│       ├── repositories/  # Repositórios
+│       └── database/      # Configuração do banco
+├── migrations/            # Migrações SQL (legado)
 ├── docs/                  # Documentação e diagramas
 └── tests/                 # Testes de integração
 ```
@@ -83,6 +80,7 @@ txstream/
 
 - **Linguagem**: Go 1.21+
 - **Banco de Dados**: PostgreSQL
+- **ORM**: GORM
 - **Message Broker**: Apache Kafka (KRaft)
 - **HTTP Router**: Gorilla Mux
 - **Testes**: Testify
