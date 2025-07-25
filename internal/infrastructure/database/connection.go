@@ -86,6 +86,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.Order{},
 		&models.OrderItem{},
 		&models.OutboxEvent{},
+		&models.Event{},
 	}
 
 	for _, model := range models {

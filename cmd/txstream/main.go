@@ -12,7 +12,10 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 
+	"github.com/lorenaziviani/txstream/internal/application/usecases"
 	"github.com/lorenaziviani/txstream/internal/infrastructure/database"
+	"github.com/lorenaziviani/txstream/internal/infrastructure/handlers"
+	"github.com/lorenaziviani/txstream/internal/infrastructure/repositories"
 )
 
 func main() {
@@ -25,6 +28,17 @@ func main() {
 	}
 	defer database.CloseDatabase()
 
+	// Initialize repositories
+	db := database.GetDB()
+	orderRepo := repositories.NewOrderRepository(db)
+	outboxRepo := repositories.NewOutboxRepository(db)
+
+	// Initialize use cases
+	orderUseCase := usecases.NewOrderUseCase(orderRepo, outboxRepo, db)
+
+	// Initialize handlers
+	orderHandler := handlers.NewOrderHandler(orderUseCase)
+
 	router := mux.NewRouter()
 
 	router.Use(loggingMiddleware)
@@ -33,7 +47,7 @@ func main() {
 	router.HandleFunc("/ready", readinessCheckHandler).Methods("GET")
 
 	apiRouter := router.PathPrefix("/api/v1").Subrouter()
-	setupAPIRoutes(apiRouter)
+	setupAPIRoutes(apiRouter, orderHandler)
 
 	port := os.Getenv("SERVER_PORT")
 	if port == "" {
@@ -71,18 +85,16 @@ func main() {
 	log.Println("Server shutdown successfully")
 }
 
-func setupAPIRoutes(router *mux.Router) {
-	// TODO: Implement routes
-	router.HandleFunc("/orders", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"message": "Orders endpoint - em desenvolvimento"}`))
-	}).Methods("POST", "GET")
+func setupAPIRoutes(router *mux.Router, orderHandler *handlers.OrderHandler) {
+	router.HandleFunc("/orders", orderHandler.CreateOrderHandler).Methods("POST")
+	router.HandleFunc("/orders", orderHandler.ListOrdersHandler).Methods("GET")
+	router.HandleFunc("/orders/{id}", orderHandler.GetOrderByIDHandler).Methods("GET")
+	router.HandleFunc("/orders/number/{orderNumber}", orderHandler.GetOrderByNumberHandler).Methods("GET")
 
 	router.HandleFunc("/events", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"message": "Events endpoint - em desenvolvimento"}`))
+		w.Write([]byte(`{"message": "Events endpoint - in development"}`))
 	}).Methods("GET")
 }
 

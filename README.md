@@ -57,6 +57,57 @@ cp .env.example .env
 go run cmd/txstream/main.go
 ```
 
+### 🧪 Testando a API
+
+Após iniciar o servidor, você pode testar os endpoints:
+
+#### Criar um Pedido (Transação ACID)
+
+```bash
+curl -X POST http://localhost:8080/api/v1/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer_id": "customer-123",
+    "order_number": "ORD-001",
+    "items": [
+      {
+        "product_id": "prod-1",
+        "product_name": "Produto 1",
+        "quantity": 2,
+        "unit_price": 75.00
+      }
+    ],
+    "shipping_address": {
+      "street": "Rua das Flores",
+      "number": "123",
+      "city": "São Paulo",
+      "state": "SP",
+      "zip_code": "01234-567",
+      "country": "Brasil"
+    },
+    "billing_address": {
+      "street": "Rua das Flores",
+      "number": "123",
+      "city": "São Paulo",
+      "state": "SP",
+      "zip_code": "01234-567",
+      "country": "Brasil"
+    }
+  }'
+```
+
+#### Health Check
+
+```bash
+curl http://localhost:8080/health
+```
+
+#### Listar Pedidos
+
+```bash
+curl http://localhost:8080/api/v1/orders
+```
+
 ## 📁 Estrutura do Projeto
 
 ```
@@ -65,11 +116,13 @@ txstream/
 │   ├── txstream/          # Aplicação principal
 │   └── migrate/           # Ferramenta de migração (legado)
 ├── internal/
-│   ├── domain/            # Entidades e regras de negócio
 │   ├── application/       # Casos de uso
+│   │   ├── dto/           # Data Transfer Objects
+│   │   └── usecases/      # Casos de uso da aplicação
 │   └── infrastructure/    # Implementações externas
-│       ├── models/        # Modelos GORM
+│       ├── models/        # Modelos GORM + Lógica de Domínio
 │       ├── repositories/  # Repositórios
+│       ├── handlers/      # Handlers HTTP
 │       └── database/      # Configuração do banco
 ├── migrations/            # Migrações SQL (legado)
 ├── docs/                  # Documentação e diagramas

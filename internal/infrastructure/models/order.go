@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,6 +55,11 @@ type Address struct {
 	Country    string `gorm:"type:varchar(50);not null;default:'Brasil'" json:"country"`
 }
 
+var (
+	ErrInvalidOrderStatus         = fmt.Errorf("invalid order status")
+	ErrCannotCancelDeliveredOrder = fmt.Errorf("cannot cancel a delivered order")
+)
+
 func (Order) TableName() string {
 	return "orders"
 }
@@ -87,4 +93,95 @@ func (oi *OrderItem) BeforeCreate(tx *gorm.DB) error {
 func (oi *OrderItem) BeforeUpdate(tx *gorm.DB) error {
 	oi.UpdatedAt = time.Now()
 	return nil
+}
+
+// NewOrder creates a new instance of Order
+func NewOrder(customerID, orderNumber string, items []OrderItem, shippingAddress, billingAddress Address) *Order {
+	totalAmount := calculateTotalAmount(items)
+
+	return &Order{
+		CustomerID:      customerID,
+		OrderNumber:     orderNumber,
+		Status:          OrderStatusPending,
+		TotalAmount:     totalAmount,
+		Currency:        "BRL",
+		Items:           items,
+		ShippingAddress: shippingAddress,
+		BillingAddress:  billingAddress,
+	}
+}
+
+// Confirm confirms the order
+func (o *Order) Confirm() error {
+	if o.Status != OrderStatusPending {
+		return ErrInvalidOrderStatus
+	}
+	o.Status = OrderStatusConfirmed
+	return nil
+}
+
+// Ship marks the order as shipped
+func (o *Order) Ship() error {
+	if o.Status != OrderStatusConfirmed {
+		return ErrInvalidOrderStatus
+	}
+	o.Status = OrderStatusShipped
+	return nil
+}
+
+// Deliver marks the order as delivered
+func (o *Order) Deliver() error {
+	if o.Status != OrderStatusShipped {
+		return ErrInvalidOrderStatus
+	}
+	o.Status = OrderStatusDelivered
+	return nil
+}
+
+// Cancel cancels the order
+func (o *Order) Cancel() error {
+	if o.Status == OrderStatusDelivered {
+		return ErrCannotCancelDeliveredOrder
+	}
+	o.Status = OrderStatusCancelled
+	return nil
+}
+
+// IsPending checks if the order is pending
+func (o *Order) IsPending() bool {
+	return o.Status == OrderStatusPending
+}
+
+// IsConfirmed checks if the order is confirmed
+func (o *Order) IsConfirmed() bool {
+	return o.Status == OrderStatusConfirmed
+}
+
+// IsShipped checks if the order is shipped
+func (o *Order) IsShipped() bool {
+	return o.Status == OrderStatusShipped
+}
+
+// IsDelivered checks if the order is delivered
+func (o *Order) IsDelivered() bool {
+	return o.Status == OrderStatusDelivered
+}
+
+// IsCancelled checks if the order is cancelled
+func (o *Order) IsCancelled() bool {
+	return o.Status == OrderStatusCancelled
+}
+
+// CanBeCancelled checks if the order can be cancelled
+func (o *Order) CanBeCancelled() bool {
+	return o.Status != OrderStatusDelivered
+}
+
+// calculateTotalAmount calculates the total amount of the items
+func calculateTotalAmount(items []OrderItem) float64 {
+	var total float64
+	for _, item := range items {
+		total += item.TotalPrice
+	}
+	return total
 }
