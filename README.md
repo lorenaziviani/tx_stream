@@ -26,7 +26,7 @@ O sistema implementa o padrão Outbox para garantir:
 
 - Go 1.21+
 - PostgreSQL
-- Apache Kafka
+- Apache Kafka (com KRaft - sem Zookeeper)
 - Docker (opcional)
 
 ### Configuração
@@ -83,7 +83,7 @@ txstream/
 
 - **Linguagem**: Go 1.21+
 - **Banco de Dados**: PostgreSQL
-- **Message Broker**: Apache Kafka
+- **Message Broker**: Apache Kafka (KRaft)
 - **HTTP Router**: Gorilla Mux
 - **Testes**: Testify
 

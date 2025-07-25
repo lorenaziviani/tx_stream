@@ -1,107 +1,101 @@
-# Makefile para o projeto TxStream
-
 .PHONY: help build run test clean migrate deps docker-build docker-run
 
-# Variáveis
 BINARY_NAME=txstream
 BUILD_DIR=build
 DOCKER_IMAGE=txstream:latest
 
-# Comandos principais
-help: ## Mostra esta ajuda
-	@echo "Comandos disponíveis:"
+help: ## Show this help
+	@echo "Available commands:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
 
-deps: ## Instala as dependências do projeto
+deps: ## Install project dependencies
 	go mod download
 	go mod tidy
 
-build: ## Compila o projeto
-	@echo "🔨 Compilando TxStream..."
+build: ## Compile the project
+	@echo "🔨 Compiling TxStream..."
 	@mkdir -p $(BUILD_DIR)
 	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/txstream
 
-run: ## Executa o projeto localmente
-	@echo "🚀 Executando TxStream..."
+run: ## Run the project locally
+	@echo "Running TxStream..."
 	go run ./cmd/txstream/main.go
 
-test: ## Executa os testes
-	@echo "🧪 Executando testes..."
+test: ## Run tests
+	@echo "Running tests..."
 	go test -v ./...
 
-test-coverage: ## Executa os testes com cobertura
-	@echo "🧪 Executando testes com cobertura..."
+test-coverage: ## Run tests with coverage
+	@echo "Running tests with coverage..."
 	go test -v -coverprofile=coverage.out ./...
 	go tool cover -html=coverage.out -o coverage.html
-	@echo "📊 Relatório de cobertura gerado: coverage.html"
+	@echo "Coverage report generated: coverage.html"
 
-migrate: ## Executa as migrações do banco de dados
-	@echo "🗄️ Executando migrações..."
+migrate: ## Run database migrations
+	@echo "Running database migrations..."
 	go run ./cmd/migrate/main.go
 
-clean: ## Limpa arquivos de build
-	@echo "🧹 Limpando arquivos de build..."
+clean: ## Clean build files
+	@echo "Cleaning build files..."
 	rm -rf $(BUILD_DIR)
 	rm -f coverage.out coverage.html
 
 # Docker
-docker-build: ## Constrói a imagem Docker
-	@echo "🐳 Construindo imagem Docker..."
+docker-build: ## Build the Docker image
+	@echo "Building Docker image..."
 	docker build -t $(DOCKER_IMAGE) .
 
-docker-run: ## Executa o container Docker
-	@echo "🐳 Executando container Docker..."
+docker-run: ## Run the Docker container
+	@echo "Running Docker container..."
 	docker run -p 8080:8080 --env-file .env $(DOCKER_IMAGE)
 
 # Desenvolvimento
-dev: ## Executa em modo desenvolvimento com hot reload
-	@echo "🔥 Executando em modo desenvolvimento..."
+dev: ## Run in development mode with hot reload
+	@echo "Running in development mode..."
 	@if command -v air > /dev/null; then \
 		air; \
 	else \
-		echo "⚠️ Air não encontrado. Instalando..."; \
+		echo "Air not found. Installing..."; \
 		go install github.com/cosmtrek/air@latest; \
 		air; \
 	fi
 
-lint: ## Executa o linter
-	@echo "🔍 Executando linter..."
+lint: ## Run the linter
+	@echo "Running linter..."
 	@if command -v golangci-lint > /dev/null; then \
 		golangci-lint run; \
 	else \
-		echo "⚠️ golangci-lint não encontrado. Instalando..."; \
+		echo "golangci-lint not found. Installing..."; \
 		go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest; \
 		golangci-lint run; \
 	fi
 
-fmt: ## Formata o código
-	@echo "🎨 Formatando código..."
+fmt: ## Format the code
+	@echo "Formatting code..."
 	go fmt ./...
 
-# Verificações
-check: fmt lint test ## Executa todas as verificações
+check: fmt lint test ## Run all checks
 
-# Instalação de ferramentas
-install-tools: ## Instala ferramentas de desenvolvimento
-	@echo "🛠️ Instalando ferramentas de desenvolvimento..."
+install-tools: ## Install development tools
+	@echo "Installing development tools..."
 	go install github.com/cosmtrek/air@latest
 	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
 	go install github.com/go-delve/delve/cmd/dlv@latest
 
 # Debug
-debug: ## Executa em modo debug
-	@echo "🐛 Executando em modo debug..."
+debug: ## Run in debug mode
+	@echo "Running in debug mode..."
 	dlv debug ./cmd/txstream/main.go
 
 # Health check
-health: ## Verifica a saúde da aplicação
-	@echo "🏥 Verificando saúde da aplicação..."
-	@curl -f http://localhost:8080/health || echo "❌ Aplicação não está respondendo"
+health: ## Check the health of the application
+	@echo "Checking the health of the application..."
+	@curl -f http://localhost:8080/health || echo "Application is not responding"
 
 # Logs
-logs: ## Mostra logs da aplicação (se estiver rodando em Docker)
-	@echo "📋 Mostrando logs..."
-	@docker logs -f txstream 2>/dev/null || echo "❌ Container txstream não encontrado"
+logs: ## Show logs of the application (if running in Docker)
+	@echo "Showing logs..."
+	@docker logs -f txstream 2>/dev/null || echo "Container txstream not found"
 
 # Default target
 .DEFAULT_GOAL := help 
