@@ -67,7 +67,7 @@ go run cmd/txstream/main.go
 
 ### 🚀 Outbox Worker
 
-O Outbox Worker processa eventos pendentes do outbox e os publica:
+O Outbox Worker processa eventos pendentes do outbox e os publica no Kafka:
 
 ```bash
 # Executar o worker
@@ -84,7 +84,9 @@ make build-worker
 - 📦 **Processamento em lote**: Processa até 10 eventos por vez
 - 📋 **Log detalhado**: Exibe informações completas dos eventos
 - 🛑 **Graceful shutdown**: Para corretamente com Ctrl+C
-- 🔄 **Simulação de publicação**: Simula o envio para Kafka
+- 📨 **Publicação Kafka**: Publica eventos no tópico `txstream.events`
+- 🔄 **Retry automático**: Reintenta eventos falhados até 3 vezes
+- ✅ **Status tracking**: Marca eventos como `published` ou `failed`
 
 ### 🧪 Testando a API
 
@@ -205,6 +207,7 @@ txstream/
 - **Banco de Dados**: PostgreSQL
 - **ORM**: GORM
 - **Message Broker**: Apache Kafka (KRaft)
+- **Kafka Client**: Sarama
 - **HTTP Router**: Gorilla Mux
 - **Configuração**: Viper
 - **Testes**: Testify

@@ -1,6 +1,6 @@
 <mxfile host="65bd71144e">
     <diagram name="TxStream Architecture" id="txstream-architecture">
-        <mxGraphModel dx="202" dy="389" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+        <mxGraphModel dx="891" dy="389" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
@@ -25,7 +25,7 @@
                 <mxCell id="kafka" value="Apache Kafka&#xa;(Event Stream)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
                     <mxGeometry x="640" y="160" width="120" height="80" as="geometry"/>
                 </mxCell>
-                <mxCell id="outbox" value="Outbox Worker&#xa;(CLI Command)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1" parent="1" vertex="1">
+                <mxCell id="outbox" value="Outbox Worker&#xa;(CLI + Kafka Producer)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontStyle=1" parent="1" vertex="1">
                     <mxGeometry x="440" y="280" width="120" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="consumers" value="Event Consumers&lt;br&gt;(Microservices)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" parent="1" vertex="1">

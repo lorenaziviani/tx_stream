@@ -20,65 +20,67 @@ services:
       retries: 5
 
 
-  # kafka:
-  #   image: bitnami/kafka:3.6
-  #   container_name: txstream-kafka
-  #   ports:
-  #     - "9092:9092"
-  #   environment:
-  #     KAFKA_CFG_NODE_ID: 1
-  #     KAFKA_CFG_PROCESS_ROLES: 'broker,controller'
-  #     KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
-  #     KAFKA_CFG_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
-  #     
-  #     KAFKA_CFG_LISTENERS: 'PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093'
-  #     KAFKA_CFG_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092'
-  #     KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: 'PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT'
-  #     KAFKA_CFG_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
-  #     
-  #     KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-  #     KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-  #     KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 1
-  #     KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
-  #     KAFKA_CFG_DELETE_TOPIC_ENABLE: 'true'
-  #     
-  #     KAFKA_CFG_LOG_DIRS: '/bitnami/kafka/data'
-  #     KAFKA_CFG_LOG_RETENTION_HOURS: 168
-  #     KAFKA_CFG_LOG_SEGMENT_BYTES: 1073741824
-  #     KAFKA_CFG_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
-  #     
-  #     # KRaft specific settings
-  #     KAFKA_CFG_CLUSTER_ID: '4L6g3nShT-eMCtK--X86sw'
-  #     KAFKA_CFG_METADATA_LOG_DIR: '/bitnami/kafka/data'
-  #   volumes:
-  #     - kafka_data:/var/lib/kafka/data
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
+  kafka:
+    image: bitnami/kafka:3.6
+    container_name: txstream-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: 'broker,controller'
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: '1@kafka:9093'
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      
+      KAFKA_CFG_LISTENERS: 'PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093'
+      KAFKA_CFG_ADVERTISED_LISTENERS: 'PLAINTEXT://localhost:9092'
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: 'PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT'
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_CFG_DELETE_TOPIC_ENABLE: 'true'
+      
+      KAFKA_CFG_LOG_DIRS: '/bitnami/kafka/data'
+      KAFKA_CFG_LOG_RETENTION_HOURS: 168
+      KAFKA_CFG_LOG_SEGMENT_BYTES: 1073741824
+      KAFKA_CFG_LOG_RETENTION_CHECK_INTERVAL_MS: 300000
+      
+      # KRaft specific settings
+      KAFKA_CFG_CLUSTER_ID: '4L6g3nShT-eMCtK--X86sw'
+      KAFKA_CFG_METADATA_LOG_DIR: '/bitnami/kafka/data'
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  # kafka-ui:
-  #   image: provectuslabs/kafka-ui:latest
-  #   container_name: txstream-kafka-ui
-  #   depends_on:
-  #     - kafka
-  #   ports:
-  #     - "8081:8080"
-  #   environment:
-  #     KAFKA_CLUSTERS_0_NAME: local
-  #     KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
-  #   healthcheck:
-  #     test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080"]
-  #     interval: 30s
-  #     timeout: 10s
-  #     retries: 3
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: txstream-kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8081:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
   txstream:
     build: .
     container_name: txstream-app
     depends_on:
       postgres:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     ports:
       - "8080:8080"
@@ -89,6 +91,9 @@ services:
       - DB_PASSWORD=txstream_password
       - DB_NAME=txstream_db
       - DB_SSLMODE=disable
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC_EVENTS=txstream.events
+      - KAFKA_GROUP_ID=txstream-consumer-group
       - SERVER_PORT=8080
       - SERVER_HOST=0.0.0.0
     volumes:

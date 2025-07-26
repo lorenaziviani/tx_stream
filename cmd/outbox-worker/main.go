@@ -13,25 +13,28 @@ import (
 
 	"github.com/lorenaziviani/txstream/internal/infrastructure/config"
 	"github.com/lorenaziviani/txstream/internal/infrastructure/database"
+	"github.com/lorenaziviani/txstream/internal/infrastructure/kafka"
 	"github.com/lorenaziviani/txstream/internal/infrastructure/models"
 	"github.com/lorenaziviani/txstream/internal/infrastructure/repositories"
 )
 
 type OutboxWorker struct {
-	outboxRepo repositories.OutboxRepository
-	config     *config.Config
-	ctx        context.Context
-	cancel     context.CancelFunc
+	outboxRepo    repositories.OutboxRepository
+	kafkaProducer *kafka.Producer
+	config        *config.Config
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
-func NewOutboxWorker(outboxRepo repositories.OutboxRepository, cfg *config.Config) *OutboxWorker {
+func NewOutboxWorker(outboxRepo repositories.OutboxRepository, kafkaProducer *kafka.Producer, cfg *config.Config) *OutboxWorker {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &OutboxWorker{
-		outboxRepo: outboxRepo,
-		config:     cfg,
-		ctx:        ctx,
-		cancel:     cancel,
+		outboxRepo:    outboxRepo,
+		kafkaProducer: kafkaProducer,
+		config:        cfg,
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 }
 
@@ -40,6 +43,12 @@ func (w *OutboxWorker) Start() {
 	log.Println("Starting Outbox Worker...")
 	log.Printf("Configuration: polling=%v, batch_size=%d, max_retries=%d",
 		w.config.Worker.PollingInterval, w.config.Worker.BatchSize, w.config.Worker.MaxRetries)
+
+	if w.kafkaProducer.IsConnected() {
+		log.Printf("Kafka producer connected to brokers: %v", w.kafkaProducer.GetConfig().GetKafkaBrokers())
+	} else {
+		log.Println("Kafka producer not connected - running in simulation mode")
+	}
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -54,6 +63,11 @@ func (w *OutboxWorker) Start() {
 // Stop stops the outbox worker
 func (w *OutboxWorker) Stop() {
 	w.cancel()
+
+	if err := w.kafkaProducer.Close(); err != nil {
+		log.Printf("Error closing Kafka producer: %v", err)
+	}
+
 	log.Println("Outbox Worker stopped")
 }
 
@@ -89,24 +103,63 @@ func (w *OutboxWorker) processPendingEvents() {
 	log.Printf("Found %d pending events", len(events))
 
 	for _, event := range events {
-		w.processEvent(event)
+		w.processEvent(&event)
 	}
 }
 
 // processEvent processes an event
-func (w *OutboxWorker) processEvent(event models.OutboxEvent) {
+func (w *OutboxWorker) processEvent(event *models.OutboxEvent) {
 	log.Printf("Processing event: ID=%s, Type=%s, AggregateID=%s",
 		event.ID, event.EventType, event.AggregateID)
 
 	w.printEventDetails(event)
 
-	w.simulateEventProcessing()
+	if err := w.publishEvent(event); err != nil {
+		log.Printf("Failed to publish event %s: %v", event.ID, err)
+		w.handlePublishError(event, err)
+		return
+	}
 
-	w.markEventAsPublished(event)
+	if err := w.outboxRepo.MarkAsPublished(w.ctx, event.ID.String()); err != nil {
+		log.Printf("Failed to mark event %s as published: %v", event.ID, err)
+		return
+	}
+
+	log.Printf("Event %s processed successfully", event.ID)
+}
+
+// publishEvent publishes an event to Kafka
+func (w *OutboxWorker) publishEvent(event *models.OutboxEvent) error {
+	if !w.kafkaProducer.IsConnected() {
+		log.Printf("Kafka not connected, simulating event publication for %s", event.ID)
+		time.Sleep(100 * time.Millisecond)
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(w.ctx, w.config.Worker.ProcessTimeout)
+	defer cancel()
+
+	return w.kafkaProducer.PublishEvent(ctx, event)
+}
+
+// handlePublishError handles publish errors
+func (w *OutboxWorker) handlePublishError(event *models.OutboxEvent, err error) {
+	if event.RetryCount < w.config.Worker.MaxRetries {
+		log.Printf("Event %s will be retried (attempt %d/%d)",
+			event.ID, event.RetryCount+1, w.config.Worker.MaxRetries)
+		return
+	}
+
+	errorMsg := fmt.Sprintf("Failed to publish after %d attempts: %v",
+		w.config.Worker.MaxRetries, err)
+
+	if markErr := w.outboxRepo.MarkAsFailed(w.ctx, event.ID.String(), errorMsg); markErr != nil {
+		log.Printf("Failed to mark event %s as failed: %v", event.ID, markErr)
+	}
 }
 
 // printEventDetails prints the event details
-func (w *OutboxWorker) printEventDetails(event models.OutboxEvent) {
+func (w *OutboxWorker) printEventDetails(event *models.OutboxEvent) {
 	fmt.Println(strings.Repeat("=", 80))
 	fmt.Printf("EVENT DETAILS\n")
 	fmt.Printf("ID: %s\n", event.ID)
@@ -131,22 +184,6 @@ func (w *OutboxWorker) printEventDetails(event models.OutboxEvent) {
 	fmt.Println(strings.Repeat("=", 80))
 }
 
-// simulateEventProcessing simulates the event processing
-func (w *OutboxWorker) simulateEventProcessing() {
-	log.Printf("Simulating event publishing to Kafka...")
-
-	time.Sleep(100 * time.Millisecond)
-
-	log.Printf("Event processing simulated successfully")
-}
-
-// markEventAsPublished marks the event as published
-func (w *OutboxWorker) markEventAsPublished(event models.OutboxEvent) {
-	log.Printf("Marking event %s as published", event.ID)
-
-	// TODO: Implement actual status update in the repository
-}
-
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -162,6 +199,11 @@ func main() {
 
 	outboxRepo := repositories.NewOutboxRepository(db)
 
-	worker := NewOutboxWorker(outboxRepo, cfg)
+	kafkaProducer, err := kafka.NewProducer(&cfg.Kafka)
+	if err != nil {
+		log.Fatalf("Failed to create Kafka producer: %v", err)
+	}
+
+	worker := NewOutboxWorker(outboxRepo, kafkaProducer, cfg)
 	worker.Start()
 }
