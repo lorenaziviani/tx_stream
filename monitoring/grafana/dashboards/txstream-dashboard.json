@@ -5,6 +5,9 @@
     "tags": ["txstream", "outbox", "kafka"],
     "style": "dark",
     "timezone": "browser",
+    "uid": "txstream-metrics",
+    "version": 1,
+    "refresh": "5s",
     "panels": [
       {
         "id": 1,
@@ -242,7 +245,6 @@
     "time": {
       "from": "now-1h",
       "to": "now"
-    },
-    "refresh": "5s"
+    }
   }
 } 

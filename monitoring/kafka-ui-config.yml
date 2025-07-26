@@ -1,0 +1,17 @@
+kafka:
+  clusters:
+    - name: local
+      bootstrapServers: localhost:9092
+      readOnly: false
+      properties:
+        security.protocol: PLAINTEXT
+        sasl.mechanism: PLAIN
+        sasl.jaas.config: ""
+        request.timeout.ms: 30000
+        session.timeout.ms: 30000
+        client.dns.lookup: use_all_dns_ips
+        connections.max.idle.ms: 540000
+        metadata.max.age.ms: 300000
+
+server:
+  port: 8082

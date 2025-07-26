@@ -62,6 +62,10 @@ func NewProducer(cfg *config.KafkaConfig, metrics *metrics.Metrics) (*Producer, 
 
 	config.Producer.Compression = sarama.CompressionSnappy
 
+	config.Producer.MaxMessageBytes = 1024 * 1024 // 1MB
+	config.Consumer.Fetch.Max = 1024 * 1024       // 1MB
+	config.Consumer.Fetch.Min = 1
+
 	producer, err := sarama.NewSyncProducer(cfg.GetKafkaBrokers(), config)
 	if err != nil {
 		log.Printf("Failed to create Kafka producer: %v", err)
@@ -199,6 +203,31 @@ func (p *Producer) createEventPayload(event *models.OutboxEvent) string {
 	if err != nil {
 		log.Printf("Failed to marshal event payload: %v", err)
 		return "{}"
+	}
+
+	payloadSize := len(jsonPayload)
+	maxSize := 1024 * 1024 // 1MB
+	if payloadSize > maxSize {
+		log.Printf("Warning: Event payload size (%d bytes) exceeds maximum allowed size (%d bytes). EventID: %s",
+			payloadSize, maxSize, event.ID.String())
+
+		truncatedPayload := map[string]interface{}{
+			"event_id":       event.ID.String(),
+			"aggregate_id":   event.AggregateID,
+			"aggregate_type": event.AggregateType,
+			"event_type":     event.EventType,
+			"created_at":     event.CreatedAt.Format(time.RFC3339),
+			"error":          "payload_truncated_due_to_size_limit",
+			"original_size":  payloadSize,
+		}
+
+		truncatedJSON, err := json.Marshal(truncatedPayload)
+		if err != nil {
+			log.Printf("Failed to marshal truncated payload: %v", err)
+			return "{}"
+		}
+
+		return string(truncatedJSON)
 	}
 
 	return string(jsonPayload)

@@ -18,12 +18,9 @@ scrape_configs:
     scrape_interval: 10s
     scrape_timeout: 5s
 
-  - job_name: "kafka"
+  - job_name: "txstream-worker"
     static_configs:
-      - targets: ["kafka:9092"]
-    scrape_interval: 30s
-
-  - job_name: "postgres"
-    static_configs:
-      - targets: ["postgres:5432"]
-    scrape_interval: 30s
+      - targets: ["host.docker.internal:9091"]
+    metrics_path: "/metrics"
+    scrape_interval: 10s
+    scrape_timeout: 5s

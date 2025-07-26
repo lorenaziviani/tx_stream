@@ -117,7 +117,7 @@ func Load() (*Config, error) {
 // setDefaults sets default values for configuration
 func setDefaults() {
 	viper.SetDefault("server.host", "0.0.0.0")
-	viper.SetDefault("server.port", 8080)
+	viper.SetDefault("server.port", 8083)
 
 	viper.SetDefault("database.host", "localhost")
 	viper.SetDefault("database.port", 5432)
@@ -157,7 +157,7 @@ func setDefaults() {
 	viper.SetDefault("worker.retry_delay", "1s")
 
 	viper.SetDefault("metrics.enabled", true)
-	viper.SetDefault("metrics.port", 9090)
+	viper.SetDefault("metrics.port", 9091)
 	viper.SetDefault("metrics.path", "/metrics")
 
 	viper.SetDefault("logging.level", "info")

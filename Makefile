@@ -114,5 +114,53 @@ logs: ## Show logs of the application (if running in Docker)
 	@echo "Showing logs..."
 	@docker logs -f txstream 2>/dev/null || echo "Container txstream not found"
 
+
+start-all: ## Start all services (Docker + Kafka UI local)
+	@echo "Starting all services..."
+	@echo "Starting Docker services..."
+	@docker-compose up -d
+	@echo "Waiting for services to be ready..."
+	@sleep 10
+	@echo "starting Kafka UI locally..."
+	@make kafka-ui-start
+	@echo "URLs:"
+	@echo "   Kafka UI: http://localhost:8082"
+	@echo "   Prometheus: http://localhost:9090"
+	@echo "   Grafana: http://localhost:3000"
+	@echo "   API: http://localhost:8080"
+	@echo "To start the worker: make run-worker"
+	@echo "To stop all services: make stop-all"
+
+stop-all: ## Stop all services
+	@echo "Stopping all services..."
+	@docker-compose down
+	@make kafka-ui-stop
+	@echo "All services stopped"
+
+# Kafka UI Local
+kafka-ui-download: ## Download Kafka UI JAR file
+	@echo "Downloading Kafka UI..."
+	@if [ ! -f kafka-ui.jar ]; then \
+		curl -L -o kafka-ui.jar https://github.com/provectus/kafka-ui/releases/download/v0.7.1/kafka-ui-api-v0.7.1.jar; \
+		echo "Kafka UI downloaded successfully"; \
+	else \
+		echo "Kafka UI JAR already exists"; \
+	fi
+
+kafka-ui-start: kafka-ui-download ## Start Kafka UI locally
+	@echo "Starting Kafka UI locally..."
+	@echo "Kafka UI will be available at: http://localhost:8082"
+	@echo "Press Ctrl+C to stop"
+	@java -Dspring.config.additional-location=./monitoring/kafka-ui-config.yml -Dserver.port=8082 -jar kafka-ui.jar
+
+kafka-ui-stop: ## Stop Kafka UI (if running)
+	@echo "Stopping Kafka UI..."
+	@pkill -f "kafka-ui.jar" || echo "Kafka UI not running"
+
+kafka-ui-clean: ## Remove Kafka UI JAR file
+	@echo "🧹 Cleaning Kafka UI files..."
+	@rm -f kafka-ui.jar
+	@echo "Kafka UI files cleaned"
+
 # Default target
 .DEFAULT_GOAL := help 
