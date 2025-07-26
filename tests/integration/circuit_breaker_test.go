@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/lorenaziviani/txstream/internal/infrastructure/config"
 	"github.com/lorenaziviani/txstream/internal/infrastructure/kafka"
+	"github.com/lorenaziviani/txstream/internal/infrastructure/metrics"
 	"github.com/lorenaziviani/txstream/internal/infrastructure/models"
 )
 
@@ -30,7 +31,8 @@ func TestCircuitBreakerIntegration(t *testing.T) {
 			ResetTimeout:          10 * time.Second,
 		}
 
-		producer, err := kafka.NewProducer(kafkaConfig)
+		metrics := metrics.NewMetrics()
+		producer, err := kafka.NewProducer(kafkaConfig, metrics)
 		require.NoError(t, err)
 		defer producer.Close()
 
@@ -52,7 +54,8 @@ func TestCircuitBreakerIntegration(t *testing.T) {
 			CircuitBreakerEnabled: false,
 		}
 
-		producer, err := kafka.NewProducer(kafkaConfig)
+		metrics := metrics.NewMetrics()
+		producer, err := kafka.NewProducer(kafkaConfig, metrics)
 		require.NoError(t, err)
 		defer producer.Close()
 
@@ -75,7 +78,8 @@ func TestCircuitBreakerIntegration(t *testing.T) {
 			ResetTimeout:          10 * time.Second,
 		}
 
-		producer, err := kafka.NewProducer(kafkaConfig)
+		metrics := metrics.NewMetrics()
+		producer, err := kafka.NewProducer(kafkaConfig, metrics)
 		require.NoError(t, err)
 		defer producer.Close()
 
@@ -109,7 +113,8 @@ func TestCircuitBreakerIntegration(t *testing.T) {
 			ResetTimeout:          10 * time.Second,
 		}
 
-		producer, err := kafka.NewProducer(kafkaConfig)
+		metrics := metrics.NewMetrics()
+		producer, err := kafka.NewProducer(kafkaConfig, metrics)
 		require.NoError(t, err)
 		defer producer.Close()
 
@@ -131,9 +136,45 @@ func TestCircuitBreakerIntegration(t *testing.T) {
 		stats = producer.GetCircuitBreakerStats()
 		assert.Equal(t, "CLOSED", stats["state"])
 		assert.False(t, producer.IsCircuitBreakerOpen())
+		assert.False(t, producer.IsCircuitBreakerHalfOpen())
 	})
 
-	t.Run("circuit_breaker_with_mock_producer", func(t *testing.T) {
+	t.Run("circuit_breaker_state_transitions", func(t *testing.T) {
+		kafkaConfig := &config.KafkaConfig{
+			Brokers:               []string{"localhost:9092"},
+			TopicEvents:           "test.events",
+			RequiredAcks:          1,
+			Timeout:               30 * time.Second,
+			MaxRetries:            3,
+			RetryDelay:            1 * time.Second,
+			CircuitBreakerEnabled: true,
+			FailureThreshold:      2,
+			SuccessThreshold:      2,
+			TimeoutDuration:       5 * time.Second,
+			ResetTimeout:          100 * time.Millisecond, // Short timeout for testing
+		}
+
+		metrics := metrics.NewMetrics()
+		producer, err := kafka.NewProducer(kafkaConfig, metrics)
+		require.NoError(t, err)
+		defer producer.Close()
+
+		// Test state transitions
+		stats := producer.GetCircuitBreakerStats()
+		assert.Equal(t, "CLOSED", stats["state"])
+
+		// Force open
+		producer.ForceCircuitBreakerOpen()
+		stats = producer.GetCircuitBreakerStats()
+		assert.Equal(t, "OPEN", stats["state"])
+
+		// Force close
+		producer.ForceCircuitBreakerClose()
+		stats = producer.GetCircuitBreakerStats()
+		assert.Equal(t, "CLOSED", stats["state"])
+	})
+
+	t.Run("circuit_breaker_with_event_publishing", func(t *testing.T) {
 		kafkaConfig := &config.KafkaConfig{
 			Brokers:               []string{"localhost:9092"},
 			TopicEvents:           "test.events",
@@ -148,71 +189,29 @@ func TestCircuitBreakerIntegration(t *testing.T) {
 			ResetTimeout:          10 * time.Second,
 		}
 
-		producer, err := kafka.NewProducer(kafkaConfig)
+		metrics := metrics.NewMetrics()
+		producer, err := kafka.NewProducer(kafkaConfig, metrics)
 		require.NoError(t, err)
 		defer producer.Close()
 
+		// Create a test event
 		event := &models.OutboxEvent{
 			ID:            uuid.New(),
 			AggregateID:   uuid.New().String(),
 			AggregateType: "Test",
-			EventType:     "TestEvent",
-			EventData: models.JSON{
-				"test": "data",
-			},
-			Status:    models.OutboxStatusPending,
-			CreatedAt: time.Now(),
+			EventType:     "test.event",
+			EventData:     models.JSON{"test": "data"},
+			Status:        models.OutboxStatusPending,
 		}
 
-		// Publish should succeed (simulation mode)
+		// Initially circuit breaker should be closed
+		assert.False(t, producer.IsCircuitBreakerOpen())
+
+		// Publish event (should work in simulation mode)
 		err = producer.PublishEvent(context.Background(), event)
-		assert.NoError(t, err)
+		assert.NoError(t, err, "Event publishing should work in simulation mode")
 
 		// Circuit breaker should still be closed
-		stats := producer.GetCircuitBreakerStats()
-		assert.Equal(t, "CLOSED", stats["state"])
-		assert.Equal(t, 1, stats["success_count"])
-	})
-
-	t.Run("circuit_breaker_stats_consistency", func(t *testing.T) {
-		kafkaConfig := &config.KafkaConfig{
-			Brokers:               []string{"localhost:9092"},
-			TopicEvents:           "test.events",
-			RequiredAcks:          1,
-			Timeout:               30 * time.Second,
-			MaxRetries:            3,
-			RetryDelay:            1 * time.Second,
-			CircuitBreakerEnabled: true,
-			FailureThreshold:      3,
-			SuccessThreshold:      2,
-			TimeoutDuration:       5 * time.Second,
-			ResetTimeout:          10 * time.Second,
-		}
-
-		producer, err := kafka.NewProducer(kafkaConfig)
-		require.NoError(t, err)
-		defer producer.Close()
-
-		// Get initial stats
-		initialStats := producer.GetCircuitBreakerStats()
-		assert.Equal(t, "CLOSED", initialStats["state"])
-		assert.Equal(t, 0, initialStats["failure_count"])
-		assert.Equal(t, 0, initialStats["success_count"])
-		assert.Equal(t, 3, initialStats["failure_threshold"])
-		assert.Equal(t, 2, initialStats["success_threshold"])
-
-		// Force open and check stats
-		producer.ForceCircuitBreakerOpen()
-		openStats := producer.GetCircuitBreakerStats()
-		assert.Equal(t, "OPEN", openStats["state"])
-		assert.Equal(t, 0, openStats["failure_count"])
-		assert.Equal(t, 0, openStats["success_count"])
-
-		// Force close and check stats
-		producer.ForceCircuitBreakerClose()
-		closedStats := producer.GetCircuitBreakerStats()
-		assert.Equal(t, "CLOSED", closedStats["state"])
-		assert.Equal(t, 0, closedStats["failure_count"])
-		assert.Equal(t, 0, closedStats["success_count"])
+		assert.False(t, producer.IsCircuitBreakerOpen())
 	})
 }

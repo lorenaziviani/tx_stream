@@ -1,318 +1,434 @@
-e# TxStream – Sistema Transacional com Outbox e Kafka
+# TX Stream - Event Streaming Platform
 
-## 📘 Descrição
+Uma plataforma robusta de streaming de eventos construída em Go, implementando o padrão Outbox para garantir consistência de dados e resiliência.
 
-O TxStream é um sistema que garante consistência ACID ao criar entidades e eventos numa mesma transação (Outbox Pattern), e publica esses eventos num cluster Kafka de forma assíncrona, resiliente e idempotente.
+## 🚀 Funcionalidades
+
+### Core Features
+
+- **Outbox Pattern**: Garantia de consistência ACID entre transações de negócio e publicação de eventos
+- **Worker Pool**: Processamento paralelo de eventos com pool limitado
+- **Circuit Breaker**: Proteção contra falhas em cascata no Kafka
+- **Retry Exponencial**: Backoff inteligente com jitter para retry de eventos
+- **Métricas Prometheus**: Monitoramento completo do sistema
+
+### Funcionalidades do Worker
+
+- **Processamento Paralelo**: Worker pool com `sync.WaitGroup` e channels
+- **Race Condition Protection**: `SELECT FOR UPDATE` para evitar condições de corrida
+- **Circuit Breaker**: Estados CLOSED, OPEN, HALF-OPEN com transições automáticas
+- **Retry Exponencial**: Backoff exponencial com jitter para retry inteligente, evitando sobrecarga no Kafka durante problemas temporários
+- **Métricas em Tempo Real**: Contadores, histogramas e gauges para monitoramento
+
+## 🛠️ Tecnologias
+
+- **Backend**: Go 1.21+
+- **Database**: PostgreSQL com GORM
+- **Message Broker**: Apache Kafka (KRaft)
+- **HTTP Router**: Gorilla Mux
+- **Configuration**: Viper
+- **Testing**: Testify + Mockery v3
+- **Concurrency**: Go routines, sync.WaitGroup, channels
+- **Resiliência**: Circuit Breaker pattern
+- **Retry Inteligente**: Backoff exponencial com jitter para evitar thundering herd
+- **Monitoramento**: Prometheus metrics
+
+## 📊 Métricas do Prometheus
+
+O sistema expõe métricas detalhadas via Prometheus no endpoint `/metrics` (porta 9090).
+
+### Counters
+
+- `txstream_events_processed_total` - Total de eventos processados (por status e tipo)
+- `txstream_events_published_total` - Total de eventos publicados no Kafka (por tópico e tipo)
+- `txstream_events_failed_total` - Total de eventos que falharam (por tipo de erro e tipo)
+- `txstream_events_retried_total` - Total de eventos retry (por tentativa e tipo)
+- `txstream_circuit_breaker_trips_total` - Mudanças de estado do Circuit Breaker
+
+### Histograms
+
+- `txstream_event_processing_duration_seconds` - Tempo de processamento de eventos
+- `txstream_event_publishing_duration_seconds` - Tempo de publicação no Kafka
+- `txstream_retry_delay_duration_seconds` - Duração dos delays de retry
+
+### Gauges
+
+- `txstream_worker_pool_size` - Tamanho atual do worker pool
+- `txstream_events_in_queue` - Eventos na fila (por status)
+- `txstream_circuit_breaker_state` - Estado atual do Circuit Breaker (0=Closed, 1=Half-Open, 2=Open)
+- `txstream_active_workers` - Número de workers ativos
+
+### Exemplo de Query Prometheus
+
+```promql
+# Taxa de eventos processados por minuto
+rate(txstream_events_processed_total[1m])
+
+# Latência média de publicação
+histogram_quantile(0.95, rate(txstream_event_publishing_duration_seconds_bucket[5m]))
+
+# Estado do Circuit Breaker
+txstream_circuit_breaker_state
+
+# Eventos na fila
+txstream_events_in_queue
+```
+
+## ⚙️ Configuração
+
+### Variáveis de Ambiente
+
+#### Configuração Geral
+
+```bash
+APP_NAME=txstream
+APP_VERSION=1.0.0
+APP_ENV=development
+```
+
+#### Servidor
+
+```bash
+SERVER_PORT=8080
+SERVER_HOST=localhost
+SERVER_TIMEOUT=30s
+```
+
+#### Database
+
+```bash
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=txstream
+DB_USER=postgres
+DB_PASSWORD=postgres
+DB_SSL_MODE=disable
+DB_MAX_OPEN_CONNS=25
+DB_MAX_IDLE_CONNS=5
+DB_CONN_MAX_LIFETIME=5m
+DB_LOG_LEVEL=info
+```
+
+#### Kafka
+
+```bash
+KAFKA_BROKERS=localhost:9092
+KAFKA_TOPIC_EVENTS=txstream.events
+KAFKA_GROUP_ID=txstream-consumer-group
+KAFKA_REQUIRED_ACKS=1
+KAFKA_TIMEOUT=30s
+KAFKA_AUTO_OFFSET_RESET=earliest
+KAFKA_SESSION_TIMEOUT=30s
+KAFKA_MAX_RETRIES=3
+KAFKA_RETRY_DELAY=1s
+```
+
+#### Circuit Breaker
+
+```bash
+KAFKA_CIRCUIT_BREAKER_ENABLED=false
+KAFKA_FAILURE_THRESHOLD=5
+KAFKA_SUCCESS_THRESHOLD=3
+KAFKA_TIMEOUT_DURATION=10s
+KAFKA_RESET_TIMEOUT=30s
+```
+
+#### Retry Exponencial
+
+```bash
+KAFKA_EXPONENTIAL_RETRY_ENABLED=false
+KAFKA_BASE_DELAY=1s
+KAFKA_MAX_DELAY=30s
+KAFKA_MULTIPLIER=2.0
+```
+
+#### Worker
+
+```bash
+WORKER_POOL_SIZE=3
+WORKER_BATCH_SIZE=10
+WORKER_INTERVAL=5s
+WORKER_MAX_RETRIES=3
+WORKER_RETRY_DELAY=1s
+```
+
+#### Métricas
+
+```bash
+METRICS_ENABLED=true
+METRICS_PORT=9090
+METRICS_PATH=/metrics
+```
+
+#### Logging
+
+```bash
+LOGGING_LEVEL=info
+LOGGING_FORMAT=json
+```
 
 ## 🏗️ Arquitetura
 
-O projeto utiliza uma arquitetura hexagonal (Clean Architecture) com as seguintes camadas:
+### Diagrama de Arquitetura
 
-- **Domain**: Entidades e regras de negócio
-- **Application**: Casos de uso e serviços de aplicação
-- **Infrastructure**: Implementações concretas (banco de dados, Kafka, etc.)
+![Arquitetura TX Stream](docs/architecture.drawio)
 
-### Outbox Pattern
+### Componentes Principais
 
-O sistema implementa o padrão Outbox para garantir:
+1. **API Gateway**: Recebe requisições HTTP e roteia para use cases
+2. **Application Layer**: Contém a lógica de negócio (use cases)
+3. **Domain Layer**: Entidades e regras de domínio
+4. **Infrastructure Layer**: Implementações concretas (database, Kafka, etc.)
+5. **Outbox Worker**: Processa eventos pendentes e publica no Kafka
+6. **Worker Pool**: Gerencia workers paralelos para processamento
+7. **Circuit Breaker**: Protege contra falhas em cascata
+8. **Kafka Producer**: Publica eventos no tópico configurado
 
-- **Consistência ACID**: Transações atômicas entre entidades e eventos
-- **Resiliência**: Eventos não são perdidos mesmo em caso de falha
-- **Idempotência**: Processamento seguro de eventos duplicados
+### Fluxo de Dados
 
-## 🚀 Como Executar
+1. **HTTP Request** → API Gateway
+2. **Use Case** → Domain Layer
+3. **Event Creation** → Infrastructure Layer (Database + Outbox)
+4. **Background Processing** → Outbox Worker
+5. **Event Publishing** → Kafka Producer (com Circuit Breaker)
+6. **Event Consumption** → Microservices
+
+## 🚀 Execução
 
 ### Pré-requisitos
 
 - Go 1.21+
 - PostgreSQL
-- Apache Kafka (com KRaft - sem Zookeeper)
+- Apache Kafka
 - Docker (opcional)
 
-### Configuração
+### Setup Local
 
-1. Clone o repositório:
+1. **Clone o repositório**
 
 ```bash
-git clone https://github.com/lorenaziviani/txstream.git
+git clone <repository-url>
 cd txstream
 ```
 
-2. Instale as dependências:
-
-```bash
-go mod download
-```
-
-3. Configure as variáveis de ambiente:
+2. **Configure as variáveis de ambiente**
 
 ```bash
 cp env.example .env
 # Edite o arquivo .env com suas configurações
 ```
 
-**Configurações Disponíveis:**
-
-- **Server**: Host, porta, timeouts
-- **Database**: Conexão, pool de conexões, configurações GORM
-- **Kafka**: Brokers, tópicos, configurações de producer/consumer
-- **Worker**: Intervalo de polling, tamanho do lote, retry
-- **Logging**: Nível, formato, output
-
-4. Inicie o servidor (as migrações são executadas automaticamente):
+3. **Execute as migrações**
 
 ```bash
-go run cmd/txstream/main.go
+make migrate
 ```
 
-### 🚀 Outbox Worker
-
-O Outbox Worker processa eventos pendentes do outbox e os publica no Kafka:
+4. **Inicie os serviços**
 
 ```bash
-# Executar o worker
+# Com Docker
+docker-compose up -d
+
+# Ou manualmente
+# PostgreSQL e Kafka devem estar rodando
+```
+
+5. **Execute a aplicação**
+
+```bash
+# API Server
+make run-api
+
+# Outbox Worker
+make run-worker
+```
+
+### Comandos Make
+
+```bash
+# Build
+make build
+
+# Testes
+make test
+make test-integration
+
+# Migrações
+make migrate
+make migrate-down
+
+# Execução
+make run-api
 make run-worker
 
-# Ou compilar e executar
-make build-worker
-./build/outbox-worker
-```
+# Docker
+make docker-build
+make docker-run
 
-## ⚙️ Configuração do Circuit Breaker (Kafka)
-
-Adicione ao seu `.env`:
-
-```
-# Circuit Breaker Kafka
-KAFKA_CIRCUIT_BREAKER_ENABLED=true
-KAFKA_FAILURE_THRESHOLD=5
-KAFKA_SUCCESS_THRESHOLD=2
-KAFKA_TIMEOUT_DURATION=10s
-KAFKA_RESET_TIMEOUT=30s
-```
-
-| Variável                      | Descrição                                         | Default |
-| ----------------------------- | ------------------------------------------------- | ------- |
-| KAFKA_CIRCUIT_BREAKER_ENABLED | Ativa o circuit breaker no producer Kafka         | false   |
-| KAFKA_FAILURE_THRESHOLD       | Nº de falhas consecutivas para abrir o circuito   | 5       |
-| KAFKA_SUCCESS_THRESHOLD       | Nº de sucessos para fechar o circuito (half-open) | 2       |
-| KAFKA_TIMEOUT_DURATION        | Timeout de cada operação protegida                | 10s     |
-| KAFKA_RESET_TIMEOUT           | Tempo até tentar reabrir o circuito               | 30s     |
-
-## ⚡ Configuração do Retry Exponencial (Kafka)
-
-| Variável                          | Descrição                   | Padrão  |
-| --------------------------------- | --------------------------- | ------- |
-| `KAFKA_EXPONENTIAL_RETRY_ENABLED` | Habilita retry exponencial  | `false` |
-| `KAFKA_BASE_DELAY`                | Delay inicial para retry    | `1s`    |
-| `KAFKA_MAX_DELAY`                 | Delay máximo permitido      | `30s`   |
-| `KAFKA_MULTIPLIER`                | Multiplicador exponencial   | `2.0`   |
-| `KAFKA_MAX_RETRIES`               | Número máximo de tentativas | `3`     |
-
-### Como funciona o Retry Exponencial
-
-O retry exponencial implementa **backoff exponencial** com **jitter** para evitar o problema do "thundering herd":
-
-1. **Delay Base**: Começa com `KAFKA_BASE_DELAY`
-2. **Cálculo Exponencial**: `delay = baseDelay * multiplier^attempt`
-3. **Jitter**: Adiciona variação aleatória (0.5x - 1.5x) para distribuir as tentativas
-4. **Limite Máximo**: Respeita `KAFKA_MAX_DELAY` como limite superior
-
-**Exemplo de delays com base_delay=1s, multiplier=2.0:**
-
-- Tentativa 1: ~1-3s (com jitter)
-- Tentativa 2: ~2-6s (com jitter)
-- Tentativa 3: ~4-12s (com jitter)
-- Tentativa 4: ~8-24s (com jitter, limitado por max_delay)
-
-## Funcionalidades do Worker
-
-- 🔄 **Polling automático**: Verifica eventos pendentes a cada 5 segundos
-- 📦 **Processamento em lote**: Processa até 10 eventos por vez
-- 🚀 **Worker Pool**: Processamento paralelo com pool configurável de workers
-- 📋 **Log detalhado**: Exibe informações completas dos eventos
-- 🛑 **Graceful shutdown**: Para corretamente com Ctrl+C
-- 📨 **Publicação Kafka**: Publica eventos no tópico `txstream.events`
-- 🔄 **Retry automático**: Reintenta eventos falhados até 3 vezes
-- ✅ **Status tracking**: Marca eventos como `published` ou `failed`
-- 🔒 **Idempotência**: Garante que eventos não sejam processados duplicadamente
-- 🛡️ **Race Condition Protection**: Usa SELECT FOR UPDATE para prevenir condições de corrida
-- 🛡️ **Circuit Breaker**: Protege o envio de eventos ao Kafka, bloqueando tentativas após falhas consecutivas e reabrindo após um período de resfriamento ou sucesso.
-
-⚡ **Retry Exponencial**: Implementa backoff exponencial com jitter para retry inteligente, evitando sobrecarga no Kafka durante problemas temporários.
-
-### 🧪 Testando a API
-
-Após iniciar o servidor, você pode testar os endpoints:
-
-#### Criar um Pedido (Transação ACID)
-
-```bash
-curl -X POST http://localhost:8080/api/v1/orders \
-  -H "Content-Type: application/json" \
-  -d '{
-    "customer_id": "customer-123",
-    "order_number": "ORD-001",
-    "items": [
-      {
-        "product_id": "prod-1",
-        "product_name": "Produto 1",
-        "quantity": 2,
-        "unit_price": 75.00
-      }
-    ],
-    "shipping_address": {
-      "street": "Rua das Flores",
-      "number": "123",
-      "city": "São Paulo",
-      "state": "SP",
-      "zip_code": "01234-567",
-      "country": "Brasil"
-    },
-    "billing_address": {
-      "street": "Rua das Flores",
-      "number": "123",
-      "city": "São Paulo",
-      "state": "SP",
-      "zip_code": "01234-567",
-      "country": "Brasil"
-    }
-  }'
-```
-
-#### Health Check
-
-```bash
-curl http://localhost:8080/health
-```
-
-#### Listar Pedidos
-
-```bash
-curl http://localhost:8080/api/v1/orders
+# Limpeza
+make clean
 ```
 
 ## 🧪 Testes
 
-### **Testes de Integração**
+### Estrutura de Testes
 
-Os testes de integração validam a transação ACID e o padrão Outbox:
-
-```bash
-# Executar testes de integração
-make test-integration
-
-# Executar teste específico
-go test -v ./tests/integration/ -run TestOrderTransactionWithOutbox
+```
+tests/
+├── unit/                    # Testes unitários
+│   ├── circuit_breaker_test.go
+│   ├── exponential_retry_test.go
+│   └── ...
+├── integration/             # Testes de integração
+│   ├── order_transaction_test.go
+│   ├── outbox_failure_test.go
+│   ├── worker_pool_test.go
+│   ├── race_condition_test.go
+│   └── ...
+└── test_config.go          # Configuração de testes
 ```
 
-### **Cenários Testados**
-
-- ✅ **Transação bem-sucedida**: Order + OutboxEvent criados
-- ✅ **Falha no outbox**: Rollback completo da transação
-- ✅ **Pedido duplicado**: Retorna conflito (409)
-- ✅ **Request inválido**: Validação antes da transação
-- ✅ **Transações concorrentes**: Isolamento garantido
-- ✅ **Integridade de dados**: Dados consistentes entre Order e Event
-
-### **Todos os Testes**
+### Executando Testes
 
 ```bash
-# Executar todos os testes
+# Todos os testes
 make test
 
-# Executar testes com cobertura
-make test-coverage
+# Apenas unitários
+go test ./tests/unit/...
 
-# Executar apenas testes unitários
-make test-unit
+# Apenas integração
+go test ./tests/integration/...
+
+# Com coverage
+go test -cover ./...
+
+# Com verbose
+go test -v ./...
 ```
 
-### **Documentação Detalhada**
+## �� Monitoramento
 
-Veja [docs/testing.md](docs/testing.md) para detalhes completos sobre a estratégia de testes.
+### Prometheus e Grafana
+
+O projeto inclui configuração completa de monitoramento com Prometheus e Grafana:
+
+```bash
+# Iniciar todos os serviços incluindo monitoramento
+docker-compose up -d
+
+# Acessar Prometheus
+http://localhost:9090
+
+# Acessar Grafana
+http://localhost:3000
+# Usuário: admin
+# Senha: admin
+```
+
+### Dashboards Disponíveis
+
+- **TxStream Metrics Dashboard**: Métricas completas da aplicação
+  - Eventos processados, publicados e falhados
+  - Estado do Circuit Breaker
+  - Latência de processamento
+  - Tamanho do worker pool
+  - Eventos na fila
+
+### Métricas em Tempo Real
+
+As métricas são coletadas automaticamente e podem ser visualizadas em:
+
+1. **Prometheus**: http://localhost:9090
+
+   - Queries personalizadas
+   - Alertas configuráveis
+   - Histórico de métricas
+
+2. **Grafana**: http://localhost:3000
+   - Dashboards pré-configurados
+   - Visualizações interativas
+   - Alertas e notificações
+
+### Exemplo de Queries Prometheus
+
+```promql
+# Taxa de eventos processados por minuto
+rate(txstream_events_processed_total[1m])
+
+# Latência média de publicação (95º percentil)
+histogram_quantile(0.95, rate(txstream_event_publishing_duration_seconds_bucket[5m]))
+
+# Estado atual do Circuit Breaker
+txstream_circuit_breaker_state
+
+# Eventos na fila por status
+txstream_events_in_queue
+
+# Taxa de falhas
+rate(txstream_events_failed_total[5m])
+```
 
 ## 📁 Estrutura do Projeto
 
 ```
 txstream/
-├── cmd/
-│   ├── txstream/          # Aplicação principal
-│   ├── outbox-worker/     # Worker para processar eventos do outbox
-│   └── migrate/           # Ferramenta de migração (legado)
-├── internal/
-│   ├── application/       # Casos de uso
-│   │   ├── dto/           # Data Transfer Objects
-│   │   └── usecases/      # Casos de uso da aplicação
-│   └── infrastructure/    # Implementações externas
-│       ├── models/        # Modelos GORM + Lógica de Domínio
-│       ├── repositories/  # Repositórios
-│       ├── handlers/      # Handlers HTTP
-│       └── database/      # Configuração do banco
-├── migrations/            # Migrações SQL (legado)
-├── docs/                  # Documentação e diagramas
-└── tests/                 # Testes de integração
+├── cmd/                    # Entry points
+│   ├── migrate/           # Database migrations
+│   └── txstream/          # Main application
+├── internal/              # Código interno
+│   ├── application/       # Use cases
+│   ├── domain/           # Domain entities
+│   └── infrastructure/   # External concerns
+│       ├── config/       # Configuration
+│       ├── database/     # Database connection
+│       ├── handlers/     # HTTP handlers
+│       ├── kafka/        # Kafka producer
+│       ├── metrics/      # Prometheus metrics
+│       ├── models/       # Data models
+│       ├── repositories/ # Data access
+│       └── worker/       # Outbox worker
+├── migrations/           # SQL migrations
+├── tests/               # Test files
+├── docs/               # Documentation
+├── docker-compose.yml  # Docker services
+├── Dockerfile         # Docker image
+├── Makefile          # Build commands
+├── go.mod            # Go modules
+└── README.md         # This file
 ```
 
-## 🔧 Tecnologias
+### Convenções
 
-- **Linguagem**: Go 1.21+
-- **Banco de Dados**: PostgreSQL
-- **ORM**: GORM
-- **Message Broker**: Apache Kafka (KRaft)
-- **Kafka Client**: Sarama
-- **HTTP Router**: Gorilla Mux
-- **Configuração**: Viper
-- **Testes**: Testify
-- **Mocks**: Mockery v3
-- **Concorrência**: sync.WaitGroup, channels, goroutines
-- **Controle de Concorrência**: SELECT FOR UPDATE, row-level locking
-- **Resiliência**: Circuit Breaker customizado (thread-safe, configurável)
-- **Retry Inteligente**: Backoff exponencial com jitter para evitar thundering herd
+- **Naming**: camelCase para variáveis, PascalCase para tipos
+- **Error Handling**: Sempre retornar e logar erros
+- **Logging**: Usar structured logging com contexto
+- **Testing**: Cobertura mínima de 80%
+- **Documentation**: Comentários em funções públicas
 
-## Monitoramento do Circuit Breaker
-
-O estado do circuit breaker é registrado nos logs:
-
-```
-2025/07/26 15:50:30 Circuit Breaker state changed from CLOSED to OPEN
-2025/07/26 15:50:31 Circuit Breaker state changed from OPEN to HALF_OPEN
-```
-
-Você pode consultar o estado programaticamente via métodos do producer.
-
-## Monitoramento do Retry Exponencial
-
-Exemplo de logs quando o retry exponencial está ativo:
-
-```
-2024/01/15 10:30:15 Failed to publish event to Kafka (attempt 1/4): connection refused
-2024/01/15 10:30:15 Retrying in 2.3s (attempt 2/4)
-2024/01/15 10:30:17 Failed to publish event to Kafka (attempt 2/4): connection refused
-2024/01/15 10:30:17 Retrying in 4.8s (attempt 3/4)
-2024/01/15 10:30:22 Failed to publish event to Kafka (attempt 3/4): connection refused
-2024/01/15 10:30:22 Retrying in 9.2s (attempt 4/4)
-2024/01/15 10:30:31 Event published successfully to Kafka - Topic: txstream.events, Partition: 0, Offset: 1234
-```
-
-O retry exponencial pode ser configurado via variáveis de ambiente e consultado programaticamente.
-
-## 📊 Diagramas
-
-Consulte a pasta `docs/` para diagramas da arquitetura e fluxos do sistema.
-
-## 🤝 Contribuição
+### Contribuindo
 
 1. Fork o projeto
-2. Crie uma branch para sua feature (`git checkout -b feature/AmazingFeature`)
-3. Commit suas mudanças (`git commit -m 'Add some AmazingFeature'`)
-4. Push para a branch (`git push origin feature/AmazingFeature`)
-5. Abra um Pull Request
+2. Crie uma branch para sua feature
+3. Implemente com testes
+4. Execute `make test`
+5. Commit suas mudanças
+6. Push para a branch
+7. Abra um Pull Request
 
 ## 📄 Licença
 
-Este projeto está sob a licença MIT. Veja o arquivo `LICENSE` para mais detalhes.
+Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
 
-## 👥 Autores
+## 🤝 Suporte
 
-- **Lorena Ziviani** - _Desenvolvimento inicial_ - [lorenaziviani](https://github.com/lorenaziviani)
+Para suporte e dúvidas:
+
+- Abra uma [issue](../../issues)
+- Consulte a [documentação](docs/)
+- Entre em contato com a equipe
+
+---
+
+**TX Stream** - Event Streaming Platform com Outbox Pattern, Circuit Breaker e Métricas Prometheus 🚀

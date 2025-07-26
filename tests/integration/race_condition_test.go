@@ -24,14 +24,12 @@ func TestRaceConditionHandling(t *testing.T) {
 
 	outboxRepo := repositories.NewOutboxRepository(db)
 
-	workerConfig := &config.Config{
-		Worker: config.WorkerConfig{
-			PollingInterval: 1 * time.Second,
-			BatchSize:       10,
-			MaxRetries:      3,
-			ProcessTimeout:  30 * time.Second,
-			Concurrency:     4, // Multiple workers to test race conditions
-		},
+	workerConfig := &config.WorkerConfig{
+		PoolSize:   2,
+		BatchSize:  5,
+		Interval:   1 * time.Second,
+		MaxRetries: 3,
+		RetryDelay: 100 * time.Millisecond,
 	}
 
 	t.Run("concurrent_event_processing_race_condition", func(t *testing.T) {
@@ -324,7 +322,7 @@ func TestRaceConditionHandling(t *testing.T) {
 type RaceConditionMockWorkerPool struct {
 	outboxRepo    repositories.OutboxRepository
 	kafkaProducer *mocks.EventProducer
-	config        *config.Config
+	config        *config.WorkerConfig
 	workerCount   int
 
 	eventChan    chan *models.OutboxEvent
@@ -393,7 +391,7 @@ func (w *RaceConditionMockWorkerPool) processEvent(event *models.OutboxEvent) {
 		return
 	}
 
-	if dbEvent.Status == models.OutboxStatusFailed && dbEvent.RetryCount >= w.config.Worker.MaxRetries {
+	if dbEvent.Status == models.OutboxStatusFailed && dbEvent.RetryCount >= w.config.MaxRetries {
 		return
 	}
 
@@ -417,9 +415,9 @@ func (w *RaceConditionMockWorkerPool) handlePublishError(event *models.OutboxEve
 		return
 	}
 
-	if dbEvent.RetryCount < w.config.Worker.MaxRetries {
+	if dbEvent.RetryCount < w.config.MaxRetries {
 		errorMsg := fmt.Sprintf("Failed to publish (attempt %d/%d): %v",
-			dbEvent.RetryCount+1, w.config.Worker.MaxRetries, err)
+			dbEvent.RetryCount+1, w.config.MaxRetries, err)
 		if markErr := w.outboxRepo.MarkAsFailedWithLock(context.Background(), event.ID.String(), errorMsg); markErr != nil {
 			return
 		}
@@ -427,7 +425,7 @@ func (w *RaceConditionMockWorkerPool) handlePublishError(event *models.OutboxEve
 	}
 
 	errorMsg := fmt.Sprintf("Failed to publish after %d attempts: %v",
-		w.config.Worker.MaxRetries, err)
+		w.config.MaxRetries, err)
 
 	if markErr := w.outboxRepo.MarkAsFailedWithLock(context.Background(), event.ID.String(), errorMsg); markErr != nil {
 		return

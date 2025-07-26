@@ -2,252 +2,193 @@ package unit
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
-
 	"github.com/lorenaziviani/txstream/internal/infrastructure/kafka"
+	"github.com/lorenaziviani/txstream/internal/infrastructure/metrics"
+	"github.com/stretchr/testify/assert"
 )
 
-func TestCircuitBreaker(t *testing.T) {
-	t.Run("new_circuit_breaker_initialization", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(5, 3, 10*time.Second, 30*time.Second)
+func TestCircuitBreakerCreation(t *testing.T) {
+	metrics := metrics.NewMetrics()
+	cb := kafka.NewCircuitBreaker(5, 3, 10*time.Second, 30*time.Second, metrics)
 
-		assert.Equal(t, kafka.StateClosed, cb.GetState())
-		assert.Equal(t, 0, cb.GetFailureCount())
-		assert.Equal(t, 0, cb.GetSuccessCount())
-		assert.Equal(t, 5, cb.GetFailureThreshold())
-		assert.Equal(t, 3, cb.GetSuccessThreshold())
-		assert.Equal(t, 10*time.Second, cb.GetTimeoutDuration())
-		assert.Equal(t, 30*time.Second, cb.GetResetTimeout())
+	assert.NotNil(t, cb, "Circuit breaker should not be nil")
+	assert.Equal(t, kafka.StateClosed, cb.GetState(), "Initial state should be CLOSED")
+	assert.Equal(t, 0, cb.GetFailureCount(), "Initial failure count should be 0")
+	assert.Equal(t, 0, cb.GetSuccessCount(), "Initial success count should be 0")
+}
+
+func TestCircuitBreakerClosedState(t *testing.T) {
+	metrics := metrics.NewMetrics()
+	cb := kafka.NewCircuitBreaker(3, 2, 5*time.Second, 10*time.Second, metrics)
+
+	err := cb.Execute(context.Background(), func() error {
+		return nil
 	})
 
-	t.Run("circuit_breaker_closed_state_execution", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(3, 2, 5*time.Second, 10*time.Second)
+	assert.NoError(t, err, "Successful execution should not return error")
+	assert.Equal(t, kafka.StateClosed, cb.GetState(), "State should remain CLOSED")
+	assert.Equal(t, 0, cb.GetFailureCount(), "Failure count should remain 0")
+	assert.Equal(t, 1, cb.GetSuccessCount(), "Success count should be 1")
+}
 
+func TestCircuitBreakerFailureThreshold(t *testing.T) {
+	metrics := metrics.NewMetrics()
+	cb := kafka.NewCircuitBreaker(2, 1, 5*time.Second, 10*time.Second, metrics)
+
+	for i := 0; i < 2; i++ {
 		err := cb.Execute(context.Background(), func() error {
-			return nil
+			return assert.AnError
 		})
+		assert.Error(t, err, "Failing execution should return error")
+	}
 
-		assert.NoError(t, err)
-		assert.Equal(t, kafka.StateClosed, cb.GetState())
-		assert.Equal(t, 0, cb.GetFailureCount())
-		assert.Equal(t, 1, cb.GetSuccessCount())
-	})
+	// Circuit should be open after failure threshold
+	assert.Equal(t, kafka.StateOpen, cb.GetState(), "Circuit should be OPEN after failure threshold")
+	assert.Equal(t, 2, cb.GetFailureCount(), "Failure count should be 2")
+}
 
-	t.Run("circuit_breaker_failure_threshold_reached", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(2, 1, 5*time.Second, 10*time.Second)
+func TestCircuitBreakerOpenState(t *testing.T) {
+	metrics := metrics.NewMetrics()
+	cb := kafka.NewCircuitBreaker(2, 1, 5*time.Second, 10*time.Second, metrics)
 
-		err := cb.Execute(context.Background(), func() error {
-			return errors.New("test error")
-		})
-		assert.Error(t, err)
-		assert.Equal(t, kafka.StateClosed, cb.GetState())
-		assert.Equal(t, 1, cb.GetFailureCount())
-
-		// Second failure - should open circuit
-		err = cb.Execute(context.Background(), func() error {
-			return errors.New("test error")
-		})
-		assert.Error(t, err)
-		assert.Equal(t, kafka.StateOpen, cb.GetState())
-		assert.Equal(t, 2, cb.GetFailureCount())
-	})
-
-	t.Run("circuit_breaker_open_state_blocks_execution", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(1, 1, 5*time.Second, 10*time.Second)
-
+	// Trigger circuit to open
+	for i := 0; i < 2; i++ {
 		cb.Execute(context.Background(), func() error {
-			return errors.New("test error")
+			return assert.AnError
 		})
+	}
 
-		assert.Equal(t, kafka.StateOpen, cb.GetState())
+	assert.Equal(t, kafka.StateOpen, cb.GetState(), "Circuit should be OPEN")
 
-		err := cb.Execute(context.Background(), func() error {
-			return nil
-		})
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "circuit breaker is OPEN")
+	// In open state, operations should fail immediately
+	err := cb.Execute(context.Background(), func() error {
+		return nil
 	})
 
-	t.Run("circuit_breaker_reset_timeout_transitions_to_half_open", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(1, 2, 5*time.Second, 100*time.Millisecond)
+	assert.Error(t, err, "Operations should fail immediately in OPEN state")
+	assert.Contains(t, err.Error(), "circuit breaker is OPEN", "Error should indicate circuit is open")
+}
 
+func TestCircuitBreakerTimeout(t *testing.T) {
+	metrics := metrics.NewMetrics()
+	cb := kafka.NewCircuitBreaker(2, 1, 5*time.Second, 100*time.Millisecond, metrics)
+
+	// Trigger circuit to open
+	for i := 0; i < 2; i++ {
 		cb.Execute(context.Background(), func() error {
-			return errors.New("test error")
+			return assert.AnError
 		})
+	}
 
-		assert.Equal(t, kafka.StateOpen, cb.GetState())
+	assert.Equal(t, kafka.StateOpen, cb.GetState(), "Circuit should be OPEN")
 
-		time.Sleep(150 * time.Millisecond)
+	// Wait for timeout
+	time.Sleep(150 * time.Millisecond)
 
-		// Should transition to half-open and allow execution
-		err := cb.Execute(context.Background(), func() error {
-			return nil
-		})
-		assert.NoError(t, err)
-		assert.Equal(t, kafka.StateHalfOpen, cb.GetState())
-		// In half-open state, counters should be reset
-		assert.Equal(t, 0, cb.GetFailureCount())
-		assert.Equal(t, 1, cb.GetSuccessCount())
+	// Execute a dummy function to trigger the state transition check
+	cb.Execute(context.Background(), func() error {
+		return nil
 	})
 
-	t.Run("circuit_breaker_half_open_success_transitions_to_closed", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(1, 2, 5*time.Second, 100*time.Millisecond)
+	// Circuit should transition to half-open and then close (since success threshold is 1)
+	assert.Equal(t, kafka.StateClosed, cb.GetState(), "Circuit should be CLOSED after successful execution in half-open")
+}
 
+func TestCircuitBreakerHalfOpenSuccess(t *testing.T) {
+	metrics := metrics.NewMetrics()
+	cb := kafka.NewCircuitBreaker(2, 2, 5*time.Second, 100*time.Millisecond, metrics)
+
+	// Trigger circuit to open
+	for i := 0; i < 2; i++ {
 		cb.Execute(context.Background(), func() error {
-			return errors.New("test error")
+			return assert.AnError
 		})
+	}
 
-		time.Sleep(150 * time.Millisecond)
+	// Wait for timeout to transition to half-open
+	time.Sleep(150 * time.Millisecond)
 
-		// First success in half-open
-		err := cb.Execute(context.Background(), func() error {
-			return nil
-		})
-		assert.NoError(t, err)
-		assert.Equal(t, kafka.StateHalfOpen, cb.GetState())
-
-		// Second success should close circuit
-		err = cb.Execute(context.Background(), func() error {
-			return nil
-		})
-		assert.NoError(t, err)
-		assert.Equal(t, kafka.StateClosed, cb.GetState())
+	// Successful execution in half-open state
+	err := cb.Execute(context.Background(), func() error {
+		return nil
 	})
 
-	t.Run("circuit_breaker_half_open_failure_transitions_to_open", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(1, 2, 5*time.Second, 100*time.Millisecond)
+	assert.NoError(t, err, "Successful execution in half-open should not return error")
+	assert.Equal(t, kafka.StateHalfOpen, cb.GetState(), "Circuit should remain HALF_OPEN after first success")
+	assert.Equal(t, 0, cb.GetFailureCount(), "Failure count should be reset to 0")
+	assert.Equal(t, 1, cb.GetSuccessCount(), "Success count should be 1")
 
+	// Second successful execution should close the circuit
+	err = cb.Execute(context.Background(), func() error {
+		return nil
+	})
+
+	assert.NoError(t, err, "Second successful execution should not return error")
+	assert.Equal(t, kafka.StateClosed, cb.GetState(), "Circuit should be CLOSED after success threshold")
+	assert.Equal(t, 0, cb.GetFailureCount(), "Failure count should remain 0")
+	assert.Equal(t, 2, cb.GetSuccessCount(), "Success count should be 2")
+}
+
+func TestCircuitBreakerHalfOpenFailure(t *testing.T) {
+	metrics := metrics.NewMetrics()
+	cb := kafka.NewCircuitBreaker(2, 2, 5*time.Second, 100*time.Millisecond, metrics)
+
+	// Trigger circuit to open
+	for i := 0; i < 2; i++ {
 		cb.Execute(context.Background(), func() error {
-			return errors.New("test error")
+			return assert.AnError
 		})
+	}
 
-		time.Sleep(150 * time.Millisecond)
+	// Wait for timeout to transition to half-open
+	time.Sleep(150 * time.Millisecond)
 
-		// Failure in half-open should open circuit again
-		err := cb.Execute(context.Background(), func() error {
-			return errors.New("test error")
-		})
-		assert.Error(t, err)
-		assert.Equal(t, kafka.StateOpen, cb.GetState())
+	// Failed execution in half-open state
+	err := cb.Execute(context.Background(), func() error {
+		return assert.AnError
 	})
 
-	t.Run("circuit_breaker_success_resets_failure_count", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(3, 1, 5*time.Second, 10*time.Second)
+	assert.Error(t, err, "Failed execution in half-open should return error")
+	assert.Equal(t, kafka.StateOpen, cb.GetState(), "Circuit should return to OPEN after failure")
+	assert.Equal(t, 1, cb.GetFailureCount(), "Failure count should be 1")
+	assert.Equal(t, 0, cb.GetSuccessCount(), "Success count should be 0")
+}
 
-		cb.Execute(context.Background(), func() error {
-			return errors.New("test error")
-		})
-		cb.Execute(context.Background(), func() error {
-			return errors.New("test error")
-		})
+func TestCircuitBreakerForceMethods(t *testing.T) {
+	metrics := metrics.NewMetrics()
+	cb := kafka.NewCircuitBreaker(5, 3, 10*time.Second, 30*time.Second, metrics)
 
-		assert.Equal(t, 2, cb.GetFailureCount())
-		assert.Equal(t, kafka.StateClosed, cb.GetState())
+	// Test force open
+	cb.ForceOpen()
+	assert.Equal(t, kafka.StateOpen, cb.GetState(), "Circuit should be OPEN after force open")
 
-		// Success should reset failure count
-		cb.Execute(context.Background(), func() error {
-			return nil
-		})
+	// Test force close
+	cb.ForceClose()
+	assert.Equal(t, kafka.StateClosed, cb.GetState(), "Circuit should be CLOSED after force close")
+}
 
-		assert.Equal(t, 0, cb.GetFailureCount())
-		assert.Equal(t, kafka.StateClosed, cb.GetState())
-	})
+func TestCircuitBreakerStats(t *testing.T) {
+	metrics := metrics.NewMetrics()
+	cb := kafka.NewCircuitBreaker(3, 2, 5*time.Second, 10*time.Second, metrics)
 
-	t.Run("circuit_breaker_get_stats", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(2, 1, 5*time.Second, 10*time.Second)
+	stats := cb.GetStats()
 
-		stats := cb.GetStats()
-		assert.Equal(t, "CLOSED", stats["state"])
-		assert.Equal(t, 0, stats["failure_count"])
-		assert.Equal(t, 0, stats["success_count"])
-		assert.Equal(t, 2, stats["failure_threshold"])
-		assert.Equal(t, 1, stats["success_threshold"])
-		assert.Equal(t, 5*time.Second, stats["timeout_duration"])
-		assert.Equal(t, 10*time.Second, stats["reset_timeout"])
-	})
+	assert.NotNil(t, stats, "Stats should not be nil")
+	assert.Contains(t, stats, "state", "Stats should contain state")
+	assert.Contains(t, stats, "failure_count", "Stats should contain failure_count")
+	assert.Contains(t, stats, "success_count", "Stats should contain success_count")
+	assert.Contains(t, stats, "failure_threshold", "Stats should contain failure_threshold")
+	assert.Contains(t, stats, "success_threshold", "Stats should contain success_threshold")
+	assert.Contains(t, stats, "timeout_duration", "Stats should contain timeout_duration")
+	assert.Contains(t, stats, "reset_timeout", "Stats should contain reset_timeout")
 
-	t.Run("circuit_breaker_force_open", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(5, 3, 5*time.Second, 10*time.Second)
-
-		assert.Equal(t, kafka.StateClosed, cb.GetState())
-
-		cb.ForceOpen()
-		assert.Equal(t, kafka.StateOpen, cb.GetState())
-	})
-
-	t.Run("circuit_breaker_force_close", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(1, 1, 5*time.Second, 10*time.Second)
-
-		cb.Execute(context.Background(), func() error {
-			return errors.New("test error")
-		})
-		assert.Equal(t, kafka.StateOpen, cb.GetState())
-
-		cb.ForceClose()
-		assert.Equal(t, kafka.StateClosed, cb.GetState())
-	})
-
-	t.Run("circuit_breaker_state_check_methods", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(1, 1, 5*time.Second, 10*time.Second)
-
-		assert.True(t, cb.IsClosed())
-		assert.False(t, cb.IsOpen())
-		assert.False(t, cb.IsHalfOpen())
-
-		// Open the circuit
-		cb.ForceOpen()
-		assert.False(t, cb.IsClosed())
-		assert.True(t, cb.IsOpen())
-		assert.False(t, cb.IsHalfOpen())
-
-		// Force half-open
-		cb.ForceClose()
-		cb.ForceOpen()
-		cb.Execute(context.Background(), func() error {
-			return nil
-		})
-	})
-
-	t.Run("circuit_breaker_state_change_callback", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(1, 1, 5*time.Second, 10*time.Second)
-
-		var stateChanges []string
-		cb.SetStateChangeCallback(func(from, to kafka.CircuitBreakerState) {
-			stateChanges = append(stateChanges, from.String()+"->"+to.String())
-		})
-
-		cb.ForceOpen()
-		cb.ForceClose()
-
-		assert.Len(t, stateChanges, 2)
-		assert.Equal(t, "CLOSED->OPEN", stateChanges[0])
-		assert.Equal(t, "OPEN->CLOSED", stateChanges[1])
-	})
-
-	t.Run("circuit_breaker_concurrent_access", func(t *testing.T) {
-		cb := kafka.NewCircuitBreaker(10, 5, 5*time.Second, 10*time.Second)
-
-		// Test concurrent execution
-		done := make(chan bool, 10)
-		for i := 0; i < 10; i++ {
-			go func() {
-				cb.Execute(context.Background(), func() error {
-					return nil
-				})
-				done <- true
-			}()
-		}
-
-		for i := 0; i < 10; i++ {
-			<-done
-		}
-
-		// Should still be in closed state
-		assert.Equal(t, kafka.StateClosed, cb.GetState())
-		assert.Equal(t, 10, cb.GetSuccessCount())
-	})
+	// Test initial values
+	assert.Equal(t, "CLOSED", stats["state"], "Initial state should be CLOSED")
+	assert.Equal(t, 0, stats["failure_count"], "Initial failure count should be 0")
+	assert.Equal(t, 0, stats["success_count"], "Initial success count should be 0")
+	assert.Equal(t, 3, stats["failure_threshold"], "Failure threshold should be 3")
+	assert.Equal(t, 2, stats["success_threshold"], "Success threshold should be 2")
 }

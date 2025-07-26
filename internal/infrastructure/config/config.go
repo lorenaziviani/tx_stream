@@ -13,6 +13,7 @@ type Config struct {
 	Database DatabaseConfig `mapstructure:"database"`
 	Kafka    KafkaConfig    `mapstructure:"kafka"`
 	Worker   WorkerConfig   `mapstructure:"worker"`
+	Metrics  MetricsConfig  `mapstructure:"metrics"`
 	Logging  LoggingConfig  `mapstructure:"logging"`
 }
 
@@ -64,12 +65,17 @@ type KafkaConfig struct {
 }
 
 type WorkerConfig struct {
-	PollingInterval time.Duration `mapstructure:"polling_interval"`
-	BatchSize       int           `mapstructure:"batch_size"`
-	MaxRetries      int           `mapstructure:"max_retries"`
+	PoolSize   int           `mapstructure:"pool_size"`
+	BatchSize  int           `mapstructure:"batch_size"`
+	Interval   time.Duration `mapstructure:"interval"`
+	MaxRetries int           `mapstructure:"max_retries"`
+	RetryDelay time.Duration `mapstructure:"retry_delay"`
+}
 
-	ProcessTimeout time.Duration `mapstructure:"process_timeout"`
-	Concurrency    int           `mapstructure:"concurrency"`
+type MetricsConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	Port    int    `mapstructure:"port"`
+	Path    string `mapstructure:"path"`
 }
 
 type LoggingConfig struct {
@@ -144,11 +150,15 @@ func setDefaults() {
 	viper.SetDefault("kafka.timeout_duration", "10s")
 	viper.SetDefault("kafka.reset_timeout", "30s")
 
-	viper.SetDefault("worker.polling_interval", "5s")
+	viper.SetDefault("worker.pool_size", 3)
 	viper.SetDefault("worker.batch_size", 10)
+	viper.SetDefault("worker.interval", "5s")
 	viper.SetDefault("worker.max_retries", 3)
-	viper.SetDefault("worker.process_timeout", "30s")
-	viper.SetDefault("worker.concurrency", 1)
+	viper.SetDefault("worker.retry_delay", "1s")
+
+	viper.SetDefault("metrics.enabled", true)
+	viper.SetDefault("metrics.port", 9090)
+	viper.SetDefault("metrics.path", "/metrics")
 
 	viper.SetDefault("logging.level", "info")
 	viper.SetDefault("logging.format", "json")
@@ -221,11 +231,14 @@ func (c *KafkaConfig) Validate() error {
 
 // Validate validates worker configuration
 func (c *WorkerConfig) Validate() error {
-	if c.PollingInterval <= 0 {
-		return fmt.Errorf("polling interval must be positive")
+	if c.PoolSize <= 0 {
+		return fmt.Errorf("worker pool size must be positive")
 	}
 	if c.BatchSize <= 0 {
 		return fmt.Errorf("batch size must be positive")
+	}
+	if c.Interval <= 0 {
+		return fmt.Errorf("polling interval must be positive")
 	}
 	if c.MaxRetries < 0 {
 		return fmt.Errorf("max retries cannot be negative")

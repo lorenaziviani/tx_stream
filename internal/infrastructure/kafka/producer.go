@@ -10,6 +10,7 @@ import (
 
 	"github.com/IBM/sarama"
 	"github.com/lorenaziviani/txstream/internal/infrastructure/config"
+	"github.com/lorenaziviani/txstream/internal/infrastructure/metrics"
 	"github.com/lorenaziviani/txstream/internal/infrastructure/models"
 )
 
@@ -17,6 +18,7 @@ type Producer struct {
 	producer       sarama.SyncProducer
 	config         *config.KafkaConfig
 	circuitBreaker *CircuitBreaker
+	metrics        *metrics.Metrics
 }
 
 // NewProducerForTesting creates a producer for testing purposes
@@ -27,7 +29,7 @@ func NewProducerForTesting(cfg *config.KafkaConfig) *Producer {
 }
 
 // NewProducer creates a new Kafka producer
-func NewProducer(cfg *config.KafkaConfig) (*Producer, error) {
+func NewProducer(cfg *config.KafkaConfig, metrics *metrics.Metrics) (*Producer, error) {
 	var circuitBreaker *CircuitBreaker
 	if cfg.CircuitBreakerEnabled {
 		circuitBreaker = NewCircuitBreaker(
@@ -35,6 +37,7 @@ func NewProducer(cfg *config.KafkaConfig) (*Producer, error) {
 			cfg.SuccessThreshold,
 			cfg.TimeoutDuration,
 			cfg.ResetTimeout,
+			metrics,
 		)
 		log.Printf("Circuit Breaker enabled with failure_threshold=%d, success_threshold=%d, timeout=%s, reset_timeout=%s",
 			cfg.FailureThreshold, cfg.SuccessThreshold, cfg.TimeoutDuration, cfg.ResetTimeout)
@@ -45,6 +48,7 @@ func NewProducer(cfg *config.KafkaConfig) (*Producer, error) {
 		return &Producer{
 			config:         cfg,
 			circuitBreaker: circuitBreaker,
+			metrics:        metrics,
 		}, nil
 	}
 
@@ -65,6 +69,7 @@ func NewProducer(cfg *config.KafkaConfig) (*Producer, error) {
 		return &Producer{
 			config:         cfg,
 			circuitBreaker: circuitBreaker,
+			metrics:        metrics,
 		}, nil
 	}
 
@@ -74,6 +79,7 @@ func NewProducer(cfg *config.KafkaConfig) (*Producer, error) {
 		producer:       producer,
 		config:         cfg,
 		circuitBreaker: circuitBreaker,
+		metrics:        metrics,
 	}, nil
 }
 
@@ -135,6 +141,11 @@ func (p *Producer) publishEventDirectly(ctx context.Context, event *models.Outbo
 		}
 
 		delay := p.CalculateRetryDelay(attempt)
+
+		if p.metrics != nil {
+			p.metrics.RecordRetryDelayDuration(fmt.Sprintf("%d", attempt+1), delay)
+		}
+
 		log.Printf("Retrying in %v (attempt %d/%d)", delay, attempt+2, p.config.MaxRetries+1)
 
 		select {
@@ -154,17 +165,14 @@ func (p *Producer) CalculateRetryDelay(attempt int) time.Duration {
 		return p.config.RetryDelay
 	}
 
-	// Calculate exponential backoff: baseDelay * multiplier^attempt
 	delay := float64(p.config.BaseDelay)
 	for i := 0; i < attempt; i++ {
 		delay *= p.config.Multiplier
 	}
 
-	// Add jitter to prevent thundering herd (random factor between 0.5 and 1.5)
 	jitter := 0.5 + (rand.Float64() * 1.0)
 	delay *= jitter
 
-	// Cap the delay at maxDelay (after jitter)
 	if delay > float64(p.config.MaxDelay) {
 		delay = float64(p.config.MaxDelay)
 	}

@@ -6,6 +6,8 @@ import (
 	"log"
 	"sync"
 	"time"
+
+	"github.com/lorenaziviani/txstream/internal/infrastructure/metrics"
 )
 
 type CircuitBreakerState int
@@ -47,17 +49,27 @@ type CircuitBreaker struct {
 	lastStateChange time.Time
 
 	onStateChange func(from, to CircuitBreakerState)
+	metrics       *metrics.Metrics
 }
 
-// NewCircuitBreaker creates a new circuit breaker
-func NewCircuitBreaker(failureThreshold, successThreshold int, timeoutDuration, resetTimeout time.Duration) *CircuitBreaker {
+// NewCircuitBreaker creates a new CircuitBreaker instance
+func NewCircuitBreaker(failureThreshold, successThreshold int, timeoutDuration, resetTimeout time.Duration, metrics *metrics.Metrics) *CircuitBreaker {
 	cb := &CircuitBreaker{
+		state:            StateClosed,
 		failureThreshold: failureThreshold,
 		successThreshold: successThreshold,
 		timeoutDuration:  timeoutDuration,
 		resetTimeout:     resetTimeout,
-		state:            StateClosed,
+		failureCount:     0,
+		successCount:     0,
+		lastFailureTime:  time.Time{},
 		lastStateChange:  time.Now(),
+		mu:               sync.RWMutex{},
+		metrics:          metrics,
+	}
+
+	if metrics != nil {
+		metrics.SetCircuitBreakerState(0) // 0 = Closed
 	}
 
 	cb.onStateChange = func(from, to CircuitBreakerState) {
@@ -159,13 +171,25 @@ func (cb *CircuitBreaker) transitionTo(newState CircuitBreakerState) {
 	cb.state = newState
 	cb.lastStateChange = time.Now()
 
-	switch newState {
-	case StateClosed:
-		cb.failureCount = 0
-		cb.successCount = 0
-	case StateOpen:
-		cb.successCount = 0
-	case StateHalfOpen:
+	// Record state change in metrics
+	if cb.metrics != nil {
+		cb.metrics.RecordCircuitBreakerTrip(oldState.String(), newState.String())
+
+		// Update circuit breaker state gauge
+		var stateValue int
+		switch newState {
+		case StateClosed:
+			stateValue = 0
+		case StateHalfOpen:
+			stateValue = 1
+		case StateOpen:
+			stateValue = 2
+		}
+		cb.metrics.SetCircuitBreakerState(stateValue)
+	}
+
+	// Reset counters when entering half-open state
+	if newState == StateHalfOpen {
 		cb.failureCount = 0
 		cb.successCount = 0
 	}

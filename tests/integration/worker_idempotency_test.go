@@ -23,14 +23,12 @@ func TestWorkerIdempotency(t *testing.T) {
 
 	outboxRepo := repositories.NewOutboxRepository(db)
 
-	workerConfig := &config.Config{
-		Worker: config.WorkerConfig{
-			PollingInterval: 1 * time.Second,
-			BatchSize:       10,
-			MaxRetries:      3,
-			ProcessTimeout:  30 * time.Second,
-			Concurrency:     1,
-		},
+	workerConfig := &config.WorkerConfig{
+		PoolSize:   2,
+		BatchSize:  5,
+		Interval:   1 * time.Second,
+		MaxRetries: 3,
+		RetryDelay: 100 * time.Millisecond,
 	}
 
 	t.Run("worker_processes_event_once", func(t *testing.T) {
@@ -357,7 +355,7 @@ func TestWorkerIdempotency(t *testing.T) {
 type MockOutboxWorker struct {
 	outboxRepo    repositories.OutboxRepository
 	kafkaProducer *mocks.EventProducer
-	config        *config.Config
+	config        *config.WorkerConfig
 }
 
 // processEvent processes a single event
@@ -385,9 +383,9 @@ func (w *MockOutboxWorker) publishEvent(event *models.OutboxEvent) error {
 func (w *MockOutboxWorker) handlePublishError(event *models.OutboxEvent, err error) {
 	event.RetryCount++
 
-	if event.RetryCount < w.config.Worker.MaxRetries {
+	if event.RetryCount < w.config.MaxRetries {
 		errorMsg := fmt.Sprintf("Failed to publish (attempt %d/%d): %v",
-			event.RetryCount, w.config.Worker.MaxRetries, err)
+			event.RetryCount, w.config.MaxRetries, err)
 		if markErr := w.outboxRepo.MarkAsFailed(context.Background(), event.ID.String(), errorMsg); markErr != nil {
 			return
 		}
@@ -395,7 +393,7 @@ func (w *MockOutboxWorker) handlePublishError(event *models.OutboxEvent, err err
 	}
 
 	errorMsg := fmt.Sprintf("Failed to publish after %d attempts: %v",
-		w.config.Worker.MaxRetries, err)
+		w.config.MaxRetries, err)
 
 	if markErr := w.outboxRepo.MarkAsFailed(context.Background(), event.ID.String(), errorMsg); markErr != nil {
 		return

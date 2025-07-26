@@ -24,14 +24,12 @@ func TestWorkerPoolIntegration(t *testing.T) {
 
 	outboxRepo := repositories.NewOutboxRepository(db)
 
-	workerConfig := &config.Config{
-		Worker: config.WorkerConfig{
-			PollingInterval: 1 * time.Second,
-			BatchSize:       10,
-			MaxRetries:      3,
-			ProcessTimeout:  30 * time.Second,
-			Concurrency:     3, // Test with 3 workers
-		},
+	workerConfig := &config.WorkerConfig{
+		PoolSize:   2,
+		BatchSize:  5,
+		Interval:   1 * time.Second,
+		MaxRetries: 3,
+		RetryDelay: 100 * time.Millisecond,
 	}
 
 	t.Run("parallel_event_processing", func(t *testing.T) {
@@ -307,7 +305,7 @@ func TestWorkerPoolIntegration(t *testing.T) {
 type MockWorkerPool struct {
 	outboxRepo    repositories.OutboxRepository
 	kafkaProducer *mocks.EventProducer
-	config        *config.Config
+	config        *config.WorkerConfig
 	workerCount   int
 
 	eventChan    chan *models.OutboxEvent
@@ -393,9 +391,9 @@ func (w *MockWorkerPool) publishEvent(event *models.OutboxEvent) error {
 func (w *MockWorkerPool) handlePublishError(event *models.OutboxEvent, err error) {
 	event.RetryCount++
 
-	if event.RetryCount < w.config.Worker.MaxRetries {
+	if event.RetryCount < w.config.MaxRetries {
 		errorMsg := fmt.Sprintf("Failed to publish (attempt %d/%d): %v",
-			event.RetryCount, w.config.Worker.MaxRetries, err)
+			event.RetryCount, w.config.MaxRetries, err)
 		if markErr := w.outboxRepo.MarkAsFailed(context.Background(), event.ID.String(), errorMsg); markErr != nil {
 			return
 		}
@@ -403,7 +401,7 @@ func (w *MockWorkerPool) handlePublishError(event *models.OutboxEvent, err error
 	}
 
 	errorMsg := fmt.Sprintf("Failed to publish after %d attempts: %v",
-		w.config.Worker.MaxRetries, err)
+		w.config.MaxRetries, err)
 
 	if markErr := w.outboxRepo.MarkAsFailed(context.Background(), event.ID.String(), errorMsg); markErr != nil {
 		return
