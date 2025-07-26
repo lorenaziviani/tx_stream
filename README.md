@@ -57,6 +57,27 @@ cp .env.example .env
 go run cmd/txstream/main.go
 ```
 
+### 🚀 Outbox Worker
+
+O Outbox Worker processa eventos pendentes do outbox e os publica:
+
+```bash
+# Executar o worker
+make run-worker
+
+# Ou compilar e executar
+make build-worker
+./build/outbox-worker
+```
+
+**Funcionalidades do Worker:**
+
+- 🔄 **Polling automático**: Verifica eventos pendentes a cada 5 segundos
+- 📦 **Processamento em lote**: Processa até 10 eventos por vez
+- 📋 **Log detalhado**: Exibe informações completas dos eventos
+- 🛑 **Graceful shutdown**: Para corretamente com Ctrl+C
+- 🔄 **Simulação de publicação**: Simula o envio para Kafka
+
 ### 🧪 Testando a API
 
 Após iniciar o servidor, você pode testar os endpoints:
@@ -154,6 +175,7 @@ Veja [docs/testing.md](docs/testing.md) para detalhes completos sobre a estraté
 txstream/
 ├── cmd/
 │   ├── txstream/          # Aplicação principal
+│   ├── outbox-worker/     # Worker para processar eventos do outbox
 │   └── migrate/           # Ferramenta de migração (legado)
 ├── internal/
 │   ├── application/       # Casos de uso

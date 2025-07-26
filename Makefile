@@ -17,9 +17,18 @@ build: ## Compile the project
 	@mkdir -p $(BUILD_DIR)
 	go build -o $(BUILD_DIR)/$(BINARY_NAME) ./cmd/txstream
 
+build-worker: ## Compile the outbox worker
+	@echo "🔨 Compiling Outbox Worker..."
+	@mkdir -p $(BUILD_DIR)
+	go build -o $(BUILD_DIR)/outbox-worker ./cmd/outbox-worker
+
 run: ## Run the project locally
 	@echo "Running TxStream..."
 	go run ./cmd/txstream/main.go
+
+run-worker: ## Run the outbox worker
+	@echo "Running Outbox Worker..."
+	go run ./cmd/outbox-worker/main.go
 
 test: ## Run tests
 	@echo "Running tests..."
