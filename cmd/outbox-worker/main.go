@@ -11,37 +11,27 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/joho/godotenv"
+	"github.com/lorenaziviani/txstream/internal/infrastructure/config"
 	"github.com/lorenaziviani/txstream/internal/infrastructure/database"
 	"github.com/lorenaziviani/txstream/internal/infrastructure/models"
 	"github.com/lorenaziviani/txstream/internal/infrastructure/repositories"
 )
 
-const (
-	defaultPollingInterval = 5 * time.Second
-	defaultBatchSize       = 10
-	defaultMaxRetries      = 3
-)
-
 type OutboxWorker struct {
-	outboxRepo      repositories.OutboxRepository
-	pollingInterval time.Duration
-	batchSize       int
-	maxRetries      int
-	ctx             context.Context
-	cancel          context.CancelFunc
+	outboxRepo repositories.OutboxRepository
+	config     *config.Config
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
-func NewOutboxWorker(outboxRepo repositories.OutboxRepository) *OutboxWorker {
+func NewOutboxWorker(outboxRepo repositories.OutboxRepository, cfg *config.Config) *OutboxWorker {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &OutboxWorker{
-		outboxRepo:      outboxRepo,
-		pollingInterval: defaultPollingInterval,
-		batchSize:       defaultBatchSize,
-		maxRetries:      defaultMaxRetries,
-		ctx:             ctx,
-		cancel:          cancel,
+		outboxRepo: outboxRepo,
+		config:     cfg,
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 }
 
@@ -49,7 +39,7 @@ func NewOutboxWorker(outboxRepo repositories.OutboxRepository) *OutboxWorker {
 func (w *OutboxWorker) Start() {
 	log.Println("Starting Outbox Worker...")
 	log.Printf("Configuration: polling=%v, batch_size=%d, max_retries=%d",
-		w.pollingInterval, w.batchSize, w.maxRetries)
+		w.config.Worker.PollingInterval, w.config.Worker.BatchSize, w.config.Worker.MaxRetries)
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -69,7 +59,7 @@ func (w *OutboxWorker) Stop() {
 
 // pollingLoop starts the polling loop
 func (w *OutboxWorker) pollingLoop() {
-	ticker := time.NewTicker(w.pollingInterval)
+	ticker := time.NewTicker(w.config.Worker.PollingInterval)
 	defer ticker.Stop()
 
 	for {
@@ -85,7 +75,7 @@ func (w *OutboxWorker) pollingLoop() {
 
 // processPendingEvents processes the pending events
 func (w *OutboxWorker) processPendingEvents() {
-	events, err := w.outboxRepo.GetPendingEvents(w.ctx, w.batchSize)
+	events, err := w.outboxRepo.GetPendingEvents(w.ctx, w.config.Worker.BatchSize)
 	if err != nil {
 		log.Printf("Error fetching pending events: %v", err)
 		return
@@ -141,7 +131,7 @@ func (w *OutboxWorker) printEventDetails(event models.OutboxEvent) {
 	fmt.Println(strings.Repeat("=", 80))
 }
 
-// simulateEventProcessing simulates the event processin
+// simulateEventProcessing simulates the event processing
 func (w *OutboxWorker) simulateEventProcessing() {
 	log.Printf("Simulating event publishing to Kafka...")
 
@@ -158,8 +148,9 @@ func (w *OutboxWorker) markEventAsPublished(event models.OutboxEvent) {
 }
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Println(".env file not found, using system environment variables")
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("Failed to load configuration: %v", err)
 	}
 
 	if err := database.InitializeDatabase(); err != nil {
@@ -171,6 +162,6 @@ func main() {
 
 	outboxRepo := repositories.NewOutboxRepository(db)
 
-	worker := NewOutboxWorker(outboxRepo)
+	worker := NewOutboxWorker(outboxRepo, cfg)
 	worker.Start()
 }

@@ -47,9 +47,17 @@ go mod download
 3. Configure as variáveis de ambiente:
 
 ```bash
-cp .env.example .env
+cp env.example .env
 # Edite o arquivo .env com suas configurações
 ```
+
+**Configurações Disponíveis:**
+
+- **Server**: Host, porta, timeouts
+- **Database**: Conexão, pool de conexões, configurações GORM
+- **Kafka**: Brokers, tópicos, configurações de producer/consumer
+- **Worker**: Intervalo de polling, tamanho do lote, retry
+- **Logging**: Nível, formato, output
 
 4. Inicie o servidor (as migrações são executadas automaticamente):
 
@@ -198,6 +206,7 @@ txstream/
 - **ORM**: GORM
 - **Message Broker**: Apache Kafka (KRaft)
 - **HTTP Router**: Gorilla Mux
+- **Configuração**: Viper
 - **Testes**: Testify
 
 ## 📊 Diagramas

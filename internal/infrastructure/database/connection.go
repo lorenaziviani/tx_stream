@@ -3,83 +3,110 @@ package database
 import (
 	"fmt"
 	"log"
-	"os"
-	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/lorenaziviani/txstream/internal/infrastructure/config"
 	"github.com/lorenaziviani/txstream/internal/infrastructure/models"
 )
 
-var DB *gorm.DB
+var (
+	db  *gorm.DB
+	cfg *config.Config
+)
 
-type Config struct {
-	Host            string
-	Port            string
-	User            string
-	Password        string
-	Database        string
-	SSLMode         string
-	MaxOpenConns    int
-	MaxIdleConns    int
-	ConnMaxLifetime time.Duration
-}
+// InitializeDatabase initializes the database connection using configuration
+func InitializeDatabase() error {
+	var err error
 
-// NewConfig creates a new database configuration
-func NewConfig() *Config {
-	return &Config{
-		Host:            getEnv("DB_HOST", "localhost"),
-		Port:            getEnv("DB_PORT", "5432"),
-		User:            getEnv("DB_USER", "txstream_user"),
-		Password:        getEnv("DB_PASSWORD", "txstream_password"),
-		Database:        getEnv("DB_NAME", "txstream_db"),
-		SSLMode:         getEnv("DB_SSLMODE", "disable"),
-		MaxOpenConns:    getEnvAsInt("DB_MAX_OPEN_CONNS", 25),
-		MaxIdleConns:    getEnvAsInt("DB_MAX_IDLE_CONNS", 5),
-		ConnMaxLifetime: getEnvAsDuration("DB_CONN_MAX_LIFETIME", 5*time.Minute),
+	cfg, err = config.Load()
+	if err != nil {
+		return fmt.Errorf("failed to load configuration: %w", err)
 	}
+
+	db, err = Connect(cfg.Database)
+	if err != nil {
+		return fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	if err := AutoMigrate(db); err != nil {
+		return fmt.Errorf("failed to run migrations: %w", err)
+	}
+
+	return nil
 }
 
-// Connect establishes a connection to the database
-func Connect(config *Config) (*gorm.DB, error) {
-	dsn := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		config.Host, config.Port, config.User, config.Password, config.Database, config.SSLMode)
+// Connect establishes a database connection using the provided configuration
+func Connect(dbConfig config.DatabaseConfig) (*gorm.DB, error) {
+	dsn := dbConfig.GetDSN()
 
-	logLevel := logger.Info
-	if os.Getenv("LOG_LEVEL") == "debug" {
-		logLevel = logger.Info
+	gormLogger := logger.Default
+	switch dbConfig.LogLevel {
+	case "debug":
+		gormLogger = logger.Default.LogMode(logger.Info)
+	case "error":
+		gormLogger = logger.Default.LogMode(logger.Error)
+	case "warn":
+		gormLogger = logger.Default.LogMode(logger.Warn)
 	}
 
 	gormConfig := &gorm.Config{
-		Logger: logger.Default.LogMode(logLevel),
+		Logger: gormLogger,
 	}
 
-	db, err := gorm.Open(postgres.Open(dsn), gormConfig)
+	database, err := gorm.Open(postgres.Open(dsn), gormConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
-	sqlDB, err := db.DB()
+	sqlDB, err := database.DB()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get underlying sql.DB: %w", err)
 	}
 
-	sqlDB.SetMaxOpenConns(config.MaxOpenConns)
-	sqlDB.SetMaxIdleConns(config.MaxIdleConns)
-	sqlDB.SetConnMaxLifetime(config.ConnMaxLifetime)
+	sqlDB.SetMaxOpenConns(dbConfig.MaxOpenConns)
+	sqlDB.SetMaxIdleConns(dbConfig.MaxIdleConns)
+	sqlDB.SetConnMaxLifetime(dbConfig.ConnMaxLifetime)
 
 	if err := sqlDB.Ping(); err != nil {
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
 	log.Println("Database connection established successfully")
-	return db, nil
+	return database, nil
 }
 
-// AutoMigrate executes the automatic migrations of GORM
-func AutoMigrate(db *gorm.DB) error {
+// GetDB returns the database instance
+func GetDB() *gorm.DB {
+	return db
+}
+
+// GetConfig returns the current configuration
+func GetConfig() *config.Config {
+	return cfg
+}
+
+// CloseDatabase closes the database connection
+func CloseDatabase() error {
+	if db != nil {
+		sqlDB, err := db.DB()
+		if err != nil {
+			return fmt.Errorf("failed to get underlying sql.DB: %w", err)
+		}
+
+		if err := sqlDB.Close(); err != nil {
+			return fmt.Errorf("failed to close database connection: %w", err)
+		}
+
+		log.Println("Database connection closed")
+	}
+	return nil
+}
+
+// AutoMigrate runs database migrations
+func AutoMigrate(database *gorm.DB) error {
 	log.Println("Running database migrations...")
 
 	models := []interface{}{
@@ -90,7 +117,7 @@ func AutoMigrate(db *gorm.DB) error {
 	}
 
 	for _, model := range models {
-		if err := db.AutoMigrate(model); err != nil {
+		if err := database.AutoMigrate(model); err != nil {
 			return fmt.Errorf("failed to migrate model %T: %w", model, err)
 		}
 		log.Printf("Migrated model: %T", model)
@@ -100,62 +127,50 @@ func AutoMigrate(db *gorm.DB) error {
 	return nil
 }
 
-// InitializeDatabase initializes the database
-func InitializeDatabase() error {
-	config := NewConfig()
+// HealthCheck performs a database health check
+func HealthCheck() error {
+	if db == nil {
+		return fmt.Errorf("database connection not initialized")
+	}
 
-	db, err := Connect(config)
+	sqlDB, err := db.DB()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get underlying sql.DB: %w", err)
 	}
 
-	DB = db
-
-	if err := AutoMigrate(db); err != nil {
-		return err
+	if err := sqlDB.Ping(); err != nil {
+		return fmt.Errorf("database ping failed: %w", err)
 	}
 
 	return nil
 }
 
-// GetDB returns the database instance
-func GetDB() *gorm.DB {
-	return DB
-}
-
-// CloseDatabase closes the connection to the database
-func CloseDatabase() error {
-	if DB != nil {
-		sqlDB, err := DB.DB()
-		if err != nil {
-			return err
-		}
-		return sqlDB.Close()
-	}
-	return nil
-}
-
-func getEnv(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}
-
-func getEnvAsInt(key string, defaultValue int) int {
-	if value := os.Getenv(key); value != "" {
-		if intValue, err := fmt.Sscanf(value, "%d", &defaultValue); err == nil && intValue == 1 {
-			return defaultValue
+// GetConnectionStats returns database connection statistics
+func GetConnectionStats() map[string]interface{} {
+	if db == nil {
+		return map[string]interface{}{
+			"status": "not_initialized",
 		}
 	}
-	return defaultValue
-}
 
-func getEnvAsDuration(key string, defaultValue time.Duration) time.Duration {
-	if value := os.Getenv(key); value != "" {
-		if duration, err := time.ParseDuration(value); err == nil {
-			return duration
+	sqlDB, err := db.DB()
+	if err != nil {
+		return map[string]interface{}{
+			"status": "error",
+			"error":  err.Error(),
 		}
 	}
-	return defaultValue
+
+	stats := sqlDB.Stats()
+	return map[string]interface{}{
+		"status":              "connected",
+		"max_open_conns":      stats.MaxOpenConnections,
+		"open_conns":          stats.OpenConnections,
+		"in_use":              stats.InUse,
+		"idle":                stats.Idle,
+		"wait_count":          stats.WaitCount,
+		"wait_duration":       stats.WaitDuration.String(),
+		"max_idle_closed":     stats.MaxIdleClosed,
+		"max_lifetime_closed": stats.MaxLifetimeClosed,
+	}
 }
