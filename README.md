@@ -99,6 +99,32 @@ KAFKA_RESET_TIMEOUT=30s
 | KAFKA_TIMEOUT_DURATION        | Timeout de cada operação protegida                | 10s     |
 | KAFKA_RESET_TIMEOUT           | Tempo até tentar reabrir o circuito               | 30s     |
 
+## ⚡ Configuração do Retry Exponencial (Kafka)
+
+| Variável                          | Descrição                   | Padrão  |
+| --------------------------------- | --------------------------- | ------- |
+| `KAFKA_EXPONENTIAL_RETRY_ENABLED` | Habilita retry exponencial  | `false` |
+| `KAFKA_BASE_DELAY`                | Delay inicial para retry    | `1s`    |
+| `KAFKA_MAX_DELAY`                 | Delay máximo permitido      | `30s`   |
+| `KAFKA_MULTIPLIER`                | Multiplicador exponencial   | `2.0`   |
+| `KAFKA_MAX_RETRIES`               | Número máximo de tentativas | `3`     |
+
+### Como funciona o Retry Exponencial
+
+O retry exponencial implementa **backoff exponencial** com **jitter** para evitar o problema do "thundering herd":
+
+1. **Delay Base**: Começa com `KAFKA_BASE_DELAY`
+2. **Cálculo Exponencial**: `delay = baseDelay * multiplier^attempt`
+3. **Jitter**: Adiciona variação aleatória (0.5x - 1.5x) para distribuir as tentativas
+4. **Limite Máximo**: Respeita `KAFKA_MAX_DELAY` como limite superior
+
+**Exemplo de delays com base_delay=1s, multiplier=2.0:**
+
+- Tentativa 1: ~1-3s (com jitter)
+- Tentativa 2: ~2-6s (com jitter)
+- Tentativa 3: ~4-12s (com jitter)
+- Tentativa 4: ~8-24s (com jitter, limitado por max_delay)
+
 ## Funcionalidades do Worker
 
 - 🔄 **Polling automático**: Verifica eventos pendentes a cada 5 segundos
@@ -112,6 +138,8 @@ KAFKA_RESET_TIMEOUT=30s
 - 🔒 **Idempotência**: Garante que eventos não sejam processados duplicadamente
 - 🛡️ **Race Condition Protection**: Usa SELECT FOR UPDATE para prevenir condições de corrida
 - 🛡️ **Circuit Breaker**: Protege o envio de eventos ao Kafka, bloqueando tentativas após falhas consecutivas e reabrindo após um período de resfriamento ou sucesso.
+
+⚡ **Retry Exponencial**: Implementa backoff exponencial com jitter para retry inteligente, evitando sobrecarga no Kafka durante problemas temporários.
 
 ### 🧪 Testando a API
 
@@ -240,6 +268,7 @@ txstream/
 - **Concorrência**: sync.WaitGroup, channels, goroutines
 - **Controle de Concorrência**: SELECT FOR UPDATE, row-level locking
 - **Resiliência**: Circuit Breaker customizado (thread-safe, configurável)
+- **Retry Inteligente**: Backoff exponencial com jitter para evitar thundering herd
 
 ## Monitoramento do Circuit Breaker
 
@@ -251,6 +280,22 @@ O estado do circuit breaker é registrado nos logs:
 ```
 
 Você pode consultar o estado programaticamente via métodos do producer.
+
+## Monitoramento do Retry Exponencial
+
+Exemplo de logs quando o retry exponencial está ativo:
+
+```
+2024/01/15 10:30:15 Failed to publish event to Kafka (attempt 1/4): connection refused
+2024/01/15 10:30:15 Retrying in 2.3s (attempt 2/4)
+2024/01/15 10:30:17 Failed to publish event to Kafka (attempt 2/4): connection refused
+2024/01/15 10:30:17 Retrying in 4.8s (attempt 3/4)
+2024/01/15 10:30:22 Failed to publish event to Kafka (attempt 3/4): connection refused
+2024/01/15 10:30:22 Retrying in 9.2s (attempt 4/4)
+2024/01/15 10:30:31 Event published successfully to Kafka - Topic: txstream.events, Partition: 0, Offset: 1234
+```
+
+O retry exponencial pode ser configurado via variáveis de ambiente e consultado programaticamente.
 
 ## 📊 Diagramas
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/rand"
 	"time"
 
 	"github.com/IBM/sarama"
@@ -18,6 +19,14 @@ type Producer struct {
 	circuitBreaker *CircuitBreaker
 }
 
+// NewProducerForTesting creates a producer for testing purposes
+func NewProducerForTesting(cfg *config.KafkaConfig) *Producer {
+	return &Producer{
+		config: cfg,
+	}
+}
+
+// NewProducer creates a new Kafka producer
 func NewProducer(cfg *config.KafkaConfig) (*Producer, error) {
 	var circuitBreaker *CircuitBreaker
 	if cfg.CircuitBreakerEnabled {
@@ -84,7 +93,7 @@ func (p *Producer) publishEventWithCircuitBreaker(ctx context.Context, event *mo
 	})
 }
 
-// publishEventDirectly publishes an event directly to Kafka
+// publishEventDirectly publishes an event directly to Kafka with exponential retry
 func (p *Producer) publishEventDirectly(ctx context.Context, event *models.OutboxEvent) error {
 	if p.producer == nil {
 		log.Println("Kafka producer not initialized, skipping event publication")
@@ -99,19 +108,68 @@ func (p *Producer) publishEventDirectly(ctx context.Context, event *models.Outbo
 			{Key: []byte("event_type"), Value: []byte(event.EventType)},
 			{Key: []byte("aggregate_type"), Value: []byte(event.AggregateType)},
 			{Key: []byte("event_id"), Value: []byte(event.ID.String())},
-			{Key: []byte("timestamp"), Value: []byte(event.CreatedAt.Format(time.RFC3339))},
 		},
 	}
 
-	partition, offset, err := p.producer.SendMessage(message)
-	if err != nil {
-		return fmt.Errorf("failed to publish event %s: %w", event.ID, err)
+	var lastErr error
+	for attempt := 0; attempt <= p.config.MaxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		partition, offset, err := p.producer.SendMessage(message)
+		if err == nil {
+			log.Printf("Event published successfully to Kafka - Topic: %s, Partition: %d, Offset: %d, EventID: %s",
+				p.config.TopicEvents, partition, offset, event.ID.String())
+			return nil
+		}
+
+		lastErr = err
+		log.Printf("Failed to publish event to Kafka (attempt %d/%d): %v, EventID: %s",
+			attempt+1, p.config.MaxRetries+1, err, event.ID.String())
+
+		if attempt == p.config.MaxRetries {
+			break
+		}
+
+		delay := p.CalculateRetryDelay(attempt)
+		log.Printf("Retrying in %v (attempt %d/%d)", delay, attempt+2, p.config.MaxRetries+1)
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+			continue
+		}
 	}
 
-	log.Printf("Event %s published successfully to topic %s (partition: %d, offset: %d)",
-		event.ID, p.config.TopicEvents, partition, offset)
+	return fmt.Errorf("failed to publish event after %d attempts: %w", p.config.MaxRetries+1, lastErr)
+}
 
-	return nil
+// CalculateRetryDelay calculates the delay for the next retry attempt
+func (p *Producer) CalculateRetryDelay(attempt int) time.Duration {
+	if !p.config.ExponentialRetryEnabled {
+		return p.config.RetryDelay
+	}
+
+	// Calculate exponential backoff: baseDelay * multiplier^attempt
+	delay := float64(p.config.BaseDelay)
+	for i := 0; i < attempt; i++ {
+		delay *= p.config.Multiplier
+	}
+
+	// Add jitter to prevent thundering herd (random factor between 0.5 and 1.5)
+	jitter := 0.5 + (rand.Float64() * 1.0)
+	delay *= jitter
+
+	// Cap the delay at maxDelay (after jitter)
+	if delay > float64(p.config.MaxDelay) {
+		delay = float64(p.config.MaxDelay)
+	}
+
+	return time.Duration(delay)
 }
 
 // createEventPayload creates the event payload for Kafka
@@ -198,5 +256,22 @@ func (p *Producer) ForceCircuitBreakerOpen() {
 func (p *Producer) ForceCircuitBreakerClose() {
 	if p.circuitBreaker != nil {
 		p.circuitBreaker.ForceClose()
+	}
+}
+
+// IsExponentialRetryEnabled returns whether exponential retry is enabled
+func (p *Producer) IsExponentialRetryEnabled() bool {
+	return p.config.ExponentialRetryEnabled
+}
+
+// GetRetryConfig returns the current retry configuration
+func (p *Producer) GetRetryConfig() map[string]interface{} {
+	return map[string]interface{}{
+		"exponential_retry_enabled": p.config.ExponentialRetryEnabled,
+		"max_retries":               p.config.MaxRetries,
+		"base_delay":                p.config.BaseDelay.String(),
+		"max_delay":                 p.config.MaxDelay.String(),
+		"multiplier":                p.config.Multiplier,
+		"retry_delay":               p.config.RetryDelay.String(),
 	}
 }

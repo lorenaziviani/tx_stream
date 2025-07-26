@@ -18,4 +18,7 @@ type EventProducer interface {
 	IsCircuitBreakerHalfOpen() bool
 	ForceCircuitBreakerOpen()
 	ForceCircuitBreakerClose()
+
+	IsExponentialRetryEnabled() bool
+	GetRetryConfig() map[string]interface{}
 }

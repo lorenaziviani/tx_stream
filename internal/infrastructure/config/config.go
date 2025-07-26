@@ -51,6 +51,11 @@ type KafkaConfig struct {
 	MaxRetries int           `mapstructure:"max_retries"`
 	RetryDelay time.Duration `mapstructure:"retry_delay"`
 
+	ExponentialRetryEnabled bool          `mapstructure:"exponential_retry_enabled"`
+	BaseDelay               time.Duration `mapstructure:"base_delay"`
+	MaxDelay                time.Duration `mapstructure:"max_delay"`
+	Multiplier              float64       `mapstructure:"multiplier"`
+
 	CircuitBreakerEnabled bool          `mapstructure:"circuit_breaker_enabled"`
 	FailureThreshold      int           `mapstructure:"failure_threshold"`
 	SuccessThreshold      int           `mapstructure:"success_threshold"`
@@ -129,6 +134,10 @@ func setDefaults() {
 	viper.SetDefault("kafka.session_timeout", "30s")
 	viper.SetDefault("kafka.max_retries", 3)
 	viper.SetDefault("kafka.retry_delay", "1s")
+	viper.SetDefault("kafka.exponential_retry_enabled", false)
+	viper.SetDefault("kafka.base_delay", "1s")
+	viper.SetDefault("kafka.max_delay", "30s")
+	viper.SetDefault("kafka.multiplier", 2.0)
 	viper.SetDefault("kafka.circuit_breaker_enabled", false)
 	viper.SetDefault("kafka.failure_threshold", 5)
 	viper.SetDefault("kafka.success_threshold", 3)

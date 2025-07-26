@@ -4,8 +4,14 @@
             <root>
                 <mxCell id="0"/>
                 <mxCell id="1" parent="0"/>
+                <mxCell id="74" value="" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+                    <mxGeometry x="60" y="130" width="320" height="320" as="geometry"/>
+                </mxCell>
+                <mxCell id="73" value="" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+                    <mxGeometry x="760" y="90" width="670" height="250" as="geometry"/>
+                </mxCell>
                 <mxCell id="40" value="" style="whiteSpace=wrap;html=1;rounded=1;fontStyle=1;" vertex="1" parent="1">
-                    <mxGeometry x="585" y="710" width="205" height="290" as="geometry"/>
+                    <mxGeometry x="197.5" y="700" width="205" height="310" as="geometry"/>
                 </mxCell>
                 <mxCell id="client" value="HTTP Client" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
                     <mxGeometry x="40" y="40" width="120" height="60" as="geometry"/>
@@ -23,7 +29,7 @@
                     <mxGeometry x="440" y="160" width="120" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="postgres" value="PostgreSQL&#xa;(Outbox Table)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#dae8fc;strokeColor=#6c8ebf;" parent="1" vertex="1">
-                    <mxGeometry x="240" y="160" width="120" height="80" as="geometry"/>
+                    <mxGeometry x="230" y="150" width="120" height="80" as="geometry"/>
                 </mxCell>
                 <mxCell id="outbox-table" value="Outbox Table&lt;br&gt;&lt;br&gt;• id (PK)&lt;br&gt;• event_type&lt;br&gt;• payload&lt;br&gt;• status&lt;br&gt;• retry_count&lt;br&gt;• created_at&lt;br&gt;• updated_at" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e6f3ff;strokeColor=#4d94ff;fontSize=11;fontStyle=1;" vertex="1" parent="1">
                     <mxGeometry x="220" y="280" width="140" height="120" as="geometry"/>
@@ -34,8 +40,8 @@
                 <mxCell id="acid-note" value="ACID Transaction&lt;br&gt;Event stored atomically&lt;br&gt;with business data" style="shape=note;strokeWidth=2;fontSize=9;size=20;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1">
                     <mxGeometry x="90" y="230" width="120" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="kafka" value="Apache Kafka&#xa;(Event Stream)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#ffe6cc;strokeColor=#d79b00;" parent="1" vertex="1">
-                    <mxGeometry x="640" y="160" width="120" height="80" as="geometry"/>
+                <mxCell id="retry-backoff" value="Retry Backoff Exponential&lt;br&gt;&lt;br&gt;• Base Delay: 1s&lt;br&gt;• Multiplier: 2.0&lt;br&gt;• Max Delay: 30s&lt;br&gt;• Jitter: 0.5x-1.5" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=10;fontStyle=1;" vertex="1" parent="1">
+                    <mxGeometry x="1169" y="230" width="160" height="100" as="geometry"/>
                 </mxCell>
                 <mxCell id="5" value="" style="edgeStyle=none;html=1;" edge="1" parent="1" source="outbox" target="4">
                     <mxGeometry relative="1" as="geometry"/>
@@ -44,7 +50,7 @@
                     <mxGeometry x="440" y="280" width="120" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="consumers" value="Event Consumers&lt;br&gt;(Microservices)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" parent="1" vertex="1">
-                    <mxGeometry x="640" y="280" width="120" height="60" as="geometry"/>
+                    <mxGeometry x="630" y="280" width="120" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="conn1" value="" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="client" target="api" edge="1">
                     <mxGeometry width="50" height="50" relative="1" as="geometry">
@@ -76,10 +82,10 @@
                         <mxPoint x="360" y="200" as="targetPoint"/>
                     </mxGeometry>
                 </mxCell>
-                <mxCell id="conn6" value="" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="infra" target="kafka" edge="1">
+                <mxCell id="conn6" value="" style="endArrow=classic;html=1;rounded=0;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" parent="1" source="infra" target="54" edge="1">
                     <mxGeometry width="50" height="50" relative="1" as="geometry">
                         <mxPoint x="570" y="190" as="sourcePoint"/>
-                        <mxPoint x="640" y="200" as="targetPoint"/>
+                        <mxPoint x="760" y="200" as="targetPoint"/>
                     </mxGeometry>
                 </mxCell>
                 <mxCell id="conn7" value="" style="endArrow=classic;html=1;rounded=0;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" parent="1" source="infra" target="outbox" edge="1">
@@ -110,16 +116,21 @@
                     <mxGeometry x="160" y="40" width="80" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="label3" value="Event Publishing" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
-                    <mxGeometry x="550" y="130" width="100" height="20" as="geometry"/>
+                    <mxGeometry x="630" y="170" width="100" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="label4" value="Background Processing" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
-                    <mxGeometry x="340" y="260" width="120" height="20" as="geometry"/>
+                    <mxGeometry x="360" y="250" width="120" height="20" as="geometry"/>
                 </mxCell>
                 <mxCell id="label5" value="Event Consumption" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" parent="1" vertex="1">
                     <mxGeometry x="550" y="330" width="100" height="20" as="geometry"/>
                 </mxCell>
-                <mxCell id="3" style="edgeStyle=none;html=1;entryX=0;entryY=0;entryDx=0;entryDy=52.5;entryPerimeter=0;" parent="1" source="outbox" target="kafka" edge="1">
-                    <mxGeometry relative="1" as="geometry"/>
+                <mxCell id="label-retry" value="Retry with exponential backoff" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontStyle=1;" vertex="1" parent="1">
+                    <mxGeometry x="780" y="100" width="190" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="3" style="edgeStyle=none;html=1;entryX=0.138;entryY=0.65;entryDx=0;entryDy=0;entryPerimeter=0;" parent="1" source="outbox" target="54" edge="1">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="760" y="212.5" as="targetPoint"/>
+                    </mxGeometry>
                 </mxCell>
                 <mxCell id="27" style="edgeStyle=none;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="4" target="25">
                     <mxGeometry relative="1" as="geometry"/>
@@ -139,7 +150,7 @@
                 <mxCell id="6" value="Kafka Producer" style="whiteSpace=wrap;html=1;fillColor=#FFF2CC;strokeColor=#D6B656;rounded=1;fontStyle=1;" vertex="1" parent="1">
                     <mxGeometry x="440" y="630" width="120" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="46" style="edgeStyle=none;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="8" target="42">
+                <mxCell id="46" style="edgeStyle=none;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="8" target="42">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="8" value="Circuit Breaker" style="whiteSpace=wrap;html=1;fillColor=#E1D5E7;strokeColor=#9673A6;rounded=1;fontStyle=1;" vertex="1" parent="1">
@@ -149,27 +160,24 @@
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="10" value="Closed" style="whiteSpace=wrap;html=1;fillColor=#D5E8D4;strokeColor=#82B366;rounded=1;fontStyle=1;" vertex="1" parent="1">
-                    <mxGeometry x="620" y="736.5" width="120" height="60" as="geometry"/>
+                    <mxGeometry x="232.5" y="746.5" width="120" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="22" style="edgeStyle=none;html=1;entryX=1;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="12" target="10">
+                <mxCell id="22" style="edgeStyle=none;html=1;entryX=1;entryY=0.5;entryDx=0;exitDy=0;" edge="1" parent="1" source="12" target="10">
                     <mxGeometry relative="1" as="geometry">
                         <Array as="points">
-                            <mxPoint x="780" y="946.5"/>
-                            <mxPoint x="770" y="766.5"/>
+                            <mxPoint x="383" y="957"/>
+                            <mxPoint x="382.5" y="776.5"/>
                         </Array>
                     </mxGeometry>
                 </mxCell>
                 <mxCell id="12" value="Half Open" style="whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;rounded=1;fontStyle=1;" vertex="1" parent="1">
-                    <mxGeometry x="620" y="913.5" width="120" height="60" as="geometry"/>
+                    <mxGeometry x="232.5" y="923.5" width="120" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="20" style="edgeStyle=none;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="15" target="12">
                     <mxGeometry relative="1" as="geometry"/>
                 </mxCell>
                 <mxCell id="15" value="Open" style="whiteSpace=wrap;html=1;fillColor=#F8CECC;strokeColor=#B85450;rounded=1;fontStyle=1;" vertex="1" parent="1">
-                    <mxGeometry x="620" y="826.5" width="120" height="60" as="geometry"/>
-                </mxCell>
-                <mxCell id="17" value="Apache Kafka" style="whiteSpace=wrap;html=1;fillColor=#FFE6CC;strokeColor=#D79B00;rounded=1;fontStyle=1;" vertex="1" parent="1">
-                    <mxGeometry x="440" y="960" width="120" height="60" as="geometry"/>
+                    <mxGeometry x="232.5" y="836.5" width="120" height="60" as="geometry"/>
                 </mxCell>
                 <mxCell id="32" style="edgeStyle=none;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="23" target="6">
                     <mxGeometry relative="1" as="geometry"/>
@@ -189,11 +197,10 @@
                 <mxCell id="26" value="Worker" style="whiteSpace=wrap;html=1;fillColor=#DAE8FC;strokeColor=#6C8EBF;rounded=1;fontStyle=1;" vertex="1" parent="1">
                     <mxGeometry x="550" y="500" width="50" height="60" as="geometry"/>
                 </mxCell>
-                <mxCell id="41" style="edgeStyle=none;html=1;entryX=0.015;entryY=0.203;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="8" target="40">
-                    <mxGeometry relative="1" as="geometry"/>
-                </mxCell>
-                <mxCell id="44" style="edgeStyle=none;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" edge="1" parent="1" source="42" target="17">
-                    <mxGeometry relative="1" as="geometry"/>
+                <mxCell id="44" style="edgeStyle=none;html=1;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="42" target="54">
+                    <mxGeometry relative="1" as="geometry">
+                        <mxPoint x="810.1754385964912" y="240" as="targetPoint"/>
+                    </mxGeometry>
                 </mxCell>
                 <mxCell id="47" value="YES" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=1" connectable="0" vertex="1" parent="44">
                     <mxGeometry x="-0.1" y="3" relative="1" as="geometry">
@@ -201,7 +208,72 @@
                     </mxGeometry>
                 </mxCell>
                 <mxCell id="42" value="Closed?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
-                    <mxGeometry x="460" y="840" width="80" height="80" as="geometry"/>
+                    <mxGeometry x="640" y="730" width="80" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="52" value="Apache Kafka&#xa;(Event Stream)" style="shape=cylinder3;whiteSpace=wrap;html=1;boundedLbl=1;backgroundOutline=1;size=15;fillColor=#ffe6cc;strokeColor=#d79b00;" vertex="1" parent="1">
+                    <mxGeometry x="1290" y="120" width="120" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="56" value="" style="edgeStyle=none;html=1;" edge="1" parent="1" source="54" target="55">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="64" value="YES" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=1" vertex="1" connectable="0" parent="56">
+                    <mxGeometry x="-0.4" y="1" relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="54" value="Fail?" style="rhombus;whiteSpace=wrap;html=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+                    <mxGeometry x="770" y="170" width="80" height="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="63" value="" style="edgeStyle=none;html=1;" edge="1" parent="1" source="55" target="62">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="55" value="Calculate Delay" style="whiteSpace=wrap;html=1;rounded=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+                    <mxGeometry x="880" y="180" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="60" value="Event Publishing" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+                    <mxGeometry x="610" y="220" width="100" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="61" value="Event Publishing" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+                    <mxGeometry x="770" y="394" width="100" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="71" style="edgeStyle=none;html=1;entryX=1;entryY=1;entryDx=0;entryDy=0;" edge="1" parent="1" source="62" target="54">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="1130" y="270"/>
+                            <mxPoint x="960" y="270"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="62" value="Wait" style="whiteSpace=wrap;html=1;rounded=1;fillColor=#f5f5f5;fontColor=#333333;strokeColor=#666666;" vertex="1" parent="1">
+                    <mxGeometry x="1070" y="180" width="120" height="60" as="geometry"/>
+                </mxCell>
+                <mxCell id="67" style="edgeStyle=none;html=1;entryX=0;entryY=0.5;entryDx=0;entryDy=0;entryPerimeter=0;exitX=0.5;exitY=0;exitDx=0;exitDy=0;" edge="1" parent="1" source="54" target="52">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="810" y="150"/>
+                            <mxPoint x="1040" y="160"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="69" value="NO" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];fontStyle=1" vertex="1" connectable="0" parent="67">
+                    <mxGeometry x="-0.8462" y="1" relative="1" as="geometry">
+                        <mxPoint as="offset"/>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="68" value="Event Publishing" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+                    <mxGeometry x="1060" y="130" width="100" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="72" value="Event Publishing with max retries" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;" vertex="1" parent="1">
+                    <mxGeometry x="980" y="280" width="100" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="75" value="Outbox" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontStyle=1;" vertex="1" parent="1">
+                    <mxGeometry x="60" y="140" width="100" height="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="76" style="edgeStyle=none;html=1;entryX=0.983;entryY=0.226;entryDx=0;entryDy=0;entryPerimeter=0;" edge="1" parent="1" source="8" target="40">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="77" value="Circuit Breaker" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;whiteSpace=wrap;rounded=0;fontStyle=1;" vertex="1" parent="1">
+                    <mxGeometry x="210" y="710" width="100" height="20" as="geometry"/>
                 </mxCell>
             </root>
         </mxGraphModel>
