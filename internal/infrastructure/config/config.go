@@ -50,6 +50,12 @@ type KafkaConfig struct {
 
 	MaxRetries int           `mapstructure:"max_retries"`
 	RetryDelay time.Duration `mapstructure:"retry_delay"`
+
+	CircuitBreakerEnabled bool          `mapstructure:"circuit_breaker_enabled"`
+	FailureThreshold      int           `mapstructure:"failure_threshold"`
+	SuccessThreshold      int           `mapstructure:"success_threshold"`
+	TimeoutDuration       time.Duration `mapstructure:"timeout_duration"`
+	ResetTimeout          time.Duration `mapstructure:"reset_timeout"`
 }
 
 type WorkerConfig struct {
@@ -123,6 +129,11 @@ func setDefaults() {
 	viper.SetDefault("kafka.session_timeout", "30s")
 	viper.SetDefault("kafka.max_retries", 3)
 	viper.SetDefault("kafka.retry_delay", "1s")
+	viper.SetDefault("kafka.circuit_breaker_enabled", false)
+	viper.SetDefault("kafka.failure_threshold", 5)
+	viper.SetDefault("kafka.success_threshold", 3)
+	viper.SetDefault("kafka.timeout_duration", "10s")
+	viper.SetDefault("kafka.reset_timeout", "30s")
 
 	viper.SetDefault("worker.polling_interval", "5s")
 	viper.SetDefault("worker.batch_size", 10)
@@ -191,10 +202,10 @@ func (c *KafkaConfig) Validate() error {
 		return fmt.Errorf("at least one Kafka broker is required")
 	}
 	if c.TopicEvents == "" {
-		return fmt.Errorf("Kafka topic events is required")
+		return fmt.Errorf("kafka topic events is required")
 	}
 	if c.GroupID == "" {
-		return fmt.Errorf("Kafka group ID is required")
+		return fmt.Errorf("kafka group ID is required")
 	}
 	return nil
 }

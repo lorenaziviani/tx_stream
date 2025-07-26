@@ -13,14 +13,30 @@ import (
 )
 
 type Producer struct {
-	producer sarama.SyncProducer
-	config   *config.KafkaConfig
+	producer       sarama.SyncProducer
+	config         *config.KafkaConfig
+	circuitBreaker *CircuitBreaker
 }
 
 func NewProducer(cfg *config.KafkaConfig) (*Producer, error) {
+	var circuitBreaker *CircuitBreaker
+	if cfg.CircuitBreakerEnabled {
+		circuitBreaker = NewCircuitBreaker(
+			cfg.FailureThreshold,
+			cfg.SuccessThreshold,
+			cfg.TimeoutDuration,
+			cfg.ResetTimeout,
+		)
+		log.Printf("Circuit Breaker enabled with failure_threshold=%d, success_threshold=%d, timeout=%s, reset_timeout=%s",
+			cfg.FailureThreshold, cfg.SuccessThreshold, cfg.TimeoutDuration, cfg.ResetTimeout)
+	}
+
 	if !cfg.IsKafkaEnabled() {
 		log.Println("Kafka not enabled, creating producer in simulation mode")
-		return &Producer{config: cfg}, nil
+		return &Producer{
+			config:         cfg,
+			circuitBreaker: circuitBreaker,
+		}, nil
 	}
 
 	config := sarama.NewConfig()
@@ -37,18 +53,39 @@ func NewProducer(cfg *config.KafkaConfig) (*Producer, error) {
 	if err != nil {
 		log.Printf("Failed to create Kafka producer: %v", err)
 		log.Println("Creating producer in simulation mode")
-		return &Producer{config: cfg}, nil
+		return &Producer{
+			config:         cfg,
+			circuitBreaker: circuitBreaker,
+		}, nil
 	}
 
 	log.Printf("Kafka producer created successfully for brokers: %v", cfg.GetKafkaBrokers())
+
 	return &Producer{
-		producer: producer,
-		config:   cfg,
+		producer:       producer,
+		config:         cfg,
+		circuitBreaker: circuitBreaker,
 	}, nil
 }
 
-// PublishEvent publishes an outbox event to Kafka
+// PublishEvent publishes an outbox event to Kafka with circuit breaker protection
 func (p *Producer) PublishEvent(ctx context.Context, event *models.OutboxEvent) error {
+	if p.circuitBreaker != nil {
+		return p.publishEventWithCircuitBreaker(ctx, event)
+	}
+
+	return p.publishEventDirectly(ctx, event)
+}
+
+// publishEventWithCircuitBreaker publishes an event using circuit breaker protection
+func (p *Producer) publishEventWithCircuitBreaker(ctx context.Context, event *models.OutboxEvent) error {
+	return p.circuitBreaker.Execute(ctx, func() error {
+		return p.publishEventDirectly(ctx, event)
+	})
+}
+
+// publishEventDirectly publishes an event directly to Kafka
+func (p *Producer) publishEventDirectly(ctx context.Context, event *models.OutboxEvent) error {
 	if p.producer == nil {
 		log.Println("Kafka producer not initialized, skipping event publication")
 		return nil
@@ -120,4 +157,46 @@ func (p *Producer) IsConnected() bool {
 // GetConfig returns the Kafka configuration
 func (p *Producer) GetConfig() *config.KafkaConfig {
 	return p.config
+}
+
+// GetCircuitBreakerStats returns circuit breaker statistics if enabled
+func (p *Producer) GetCircuitBreakerStats() map[string]interface{} {
+	if p.circuitBreaker == nil {
+		return map[string]interface{}{
+			"enabled": false,
+		}
+	}
+	stats := p.circuitBreaker.GetStats()
+	stats["enabled"] = true
+	return stats
+}
+
+// IsCircuitBreakerOpen returns true if the circuit breaker is open
+func (p *Producer) IsCircuitBreakerOpen() bool {
+	if p.circuitBreaker == nil {
+		return false
+	}
+	return p.circuitBreaker.IsOpen()
+}
+
+// IsCircuitBreakerHalfOpen returns true if the circuit breaker is half-open
+func (p *Producer) IsCircuitBreakerHalfOpen() bool {
+	if p.circuitBreaker == nil {
+		return false
+	}
+	return p.circuitBreaker.IsHalfOpen()
+}
+
+// ForceCircuitBreakerOpen forces the circuit breaker to open state
+func (p *Producer) ForceCircuitBreakerOpen() {
+	if p.circuitBreaker != nil {
+		p.circuitBreaker.ForceOpen()
+	}
+}
+
+// ForceCircuitBreakerClose forces the circuit breaker to closed state
+func (p *Producer) ForceCircuitBreakerClose() {
+	if p.circuitBreaker != nil {
+		p.circuitBreaker.ForceClose()
+	}
 }

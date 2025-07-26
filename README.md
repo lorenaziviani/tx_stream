@@ -1,4 +1,4 @@
-# TxStream – Sistema Transacional com Outbox e Kafka
+e# TxStream – Sistema Transacional com Outbox e Kafka
 
 ## 📘 Descrição
 
@@ -78,7 +78,28 @@ make build-worker
 ./build/outbox-worker
 ```
 
-**Funcionalidades do Worker:**
+## ⚙️ Configuração do Circuit Breaker (Kafka)
+
+Adicione ao seu `.env`:
+
+```
+# Circuit Breaker Kafka
+KAFKA_CIRCUIT_BREAKER_ENABLED=true
+KAFKA_FAILURE_THRESHOLD=5
+KAFKA_SUCCESS_THRESHOLD=2
+KAFKA_TIMEOUT_DURATION=10s
+KAFKA_RESET_TIMEOUT=30s
+```
+
+| Variável                      | Descrição                                         | Default |
+| ----------------------------- | ------------------------------------------------- | ------- |
+| KAFKA_CIRCUIT_BREAKER_ENABLED | Ativa o circuit breaker no producer Kafka         | false   |
+| KAFKA_FAILURE_THRESHOLD       | Nº de falhas consecutivas para abrir o circuito   | 5       |
+| KAFKA_SUCCESS_THRESHOLD       | Nº de sucessos para fechar o circuito (half-open) | 2       |
+| KAFKA_TIMEOUT_DURATION        | Timeout de cada operação protegida                | 10s     |
+| KAFKA_RESET_TIMEOUT           | Tempo até tentar reabrir o circuito               | 30s     |
+
+## Funcionalidades do Worker
 
 - 🔄 **Polling automático**: Verifica eventos pendentes a cada 5 segundos
 - 📦 **Processamento em lote**: Processa até 10 eventos por vez
@@ -90,6 +111,7 @@ make build-worker
 - ✅ **Status tracking**: Marca eventos como `published` ou `failed`
 - 🔒 **Idempotência**: Garante que eventos não sejam processados duplicadamente
 - 🛡️ **Race Condition Protection**: Usa SELECT FOR UPDATE para prevenir condições de corrida
+- 🛡️ **Circuit Breaker**: Protege o envio de eventos ao Kafka, bloqueando tentativas após falhas consecutivas e reabrindo após um período de resfriamento ou sucesso.
 
 ### 🧪 Testando a API
 
@@ -217,6 +239,18 @@ txstream/
 - **Mocks**: Mockery v3
 - **Concorrência**: sync.WaitGroup, channels, goroutines
 - **Controle de Concorrência**: SELECT FOR UPDATE, row-level locking
+- **Resiliência**: Circuit Breaker customizado (thread-safe, configurável)
+
+## Monitoramento do Circuit Breaker
+
+O estado do circuit breaker é registrado nos logs:
+
+```
+2025/07/26 15:50:30 Circuit Breaker state changed from CLOSED to OPEN
+2025/07/26 15:50:31 Circuit Breaker state changed from OPEN to HALF_OPEN
+```
+
+Você pode consultar o estado programaticamente via métodos do producer.
 
 ## 📊 Diagramas
 

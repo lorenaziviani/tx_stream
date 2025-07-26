@@ -12,4 +12,10 @@ type EventProducer interface {
 	Close() error
 	IsConnected() bool
 	GetConfig() *config.KafkaConfig
+
+	GetCircuitBreakerStats() map[string]interface{}
+	IsCircuitBreakerOpen() bool
+	IsCircuitBreakerHalfOpen() bool
+	ForceCircuitBreakerOpen()
+	ForceCircuitBreakerClose()
 }
