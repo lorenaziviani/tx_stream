@@ -89,6 +89,7 @@ make build-worker
 - 🔄 **Retry automático**: Reintenta eventos falhados até 3 vezes
 - ✅ **Status tracking**: Marca eventos como `published` ou `failed`
 - 🔒 **Idempotência**: Garante que eventos não sejam processados duplicadamente
+- 🛡️ **Race Condition Protection**: Usa SELECT FOR UPDATE para prevenir condições de corrida
 
 ### 🧪 Testando a API
 
@@ -215,6 +216,7 @@ txstream/
 - **Testes**: Testify
 - **Mocks**: Mockery v3
 - **Concorrência**: sync.WaitGroup, channels, goroutines
+- **Controle de Concorrência**: SELECT FOR UPDATE, row-level locking
 
 ## 📊 Diagramas
 

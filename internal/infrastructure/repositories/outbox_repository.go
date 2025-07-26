@@ -22,6 +22,10 @@ type OutboxRepository interface {
 	GetEventsByAggregate(ctx context.Context, aggregateID, aggregateType string) ([]models.OutboxEvent, error)
 	GetEventsByType(ctx context.Context, eventType string, limit, offset int) ([]models.OutboxEvent, error)
 	CleanupOldEvents(ctx context.Context, olderThan time.Duration) error
+
+	GetPendingEventForUpdate(ctx context.Context, id string) (*models.OutboxEvent, error)
+	MarkAsPublishedWithLock(ctx context.Context, id string) error
+	MarkAsFailedWithLock(ctx context.Context, id string, errorMsg string) error
 }
 
 type outboxRepository struct {
@@ -47,6 +51,23 @@ func (r *outboxRepository) GetByID(ctx context.Context, id string) (*models.Outb
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("outbox event not found with id: %s", id)
+		}
+		return nil, err
+	}
+
+	return &event, nil
+}
+
+// GetPendingEventForUpdate gets a pending event with row lock to prevent race conditions
+func (r *outboxRepository) GetPendingEventForUpdate(ctx context.Context, id string) (*models.OutboxEvent, error) {
+	var event models.OutboxEvent
+	err := r.db.WithContext(ctx).
+		Raw("SELECT * FROM outbox WHERE id = ? AND status = ? FOR UPDATE", id, models.OutboxStatusPending).
+		First(&event).Error
+
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, fmt.Errorf("pending outbox event not found with id: %s", id)
 		}
 		return nil, err
 	}
@@ -119,6 +140,20 @@ func (r *outboxRepository) MarkAsPublished(ctx context.Context, id string) error
 	return nil
 }
 
+// MarkAsPublishedWithLock marks an event as published with row lock to prevent race conditions
+func (r *outboxRepository) MarkAsPublishedWithLock(ctx context.Context, id string) error {
+	event, err := r.GetPendingEventForUpdate(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	event.Status = models.OutboxStatusPublished
+	event.PublishedAt = &now
+
+	return r.db.WithContext(ctx).Save(event).Error
+}
+
 // MarkAsFailed marks an event as failed
 func (r *outboxRepository) MarkAsFailed(ctx context.Context, id string, errorMsg string) error {
 	result := r.db.WithContext(ctx).
@@ -139,6 +174,20 @@ func (r *outboxRepository) MarkAsFailed(ctx context.Context, id string, errorMsg
 	}
 
 	return nil
+}
+
+// MarkAsFailedWithLock marks an event as failed with row lock to prevent race conditions
+func (r *outboxRepository) MarkAsFailedWithLock(ctx context.Context, id string, errorMsg string) error {
+	event, err := r.GetPendingEventForUpdate(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	event.Status = models.OutboxStatusFailed
+	event.ErrorMessage = errorMsg
+	event.RetryCount++
+
+	return r.db.WithContext(ctx).Save(event).Error
 }
 
 // GetEventsByAggregate gets events by aggregate

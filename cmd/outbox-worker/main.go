@@ -182,13 +182,30 @@ func (w *OutboxWorker) processEvent(event *models.OutboxEvent) {
 
 	w.printEventDetails(event)
 
+	// idempotency check
+	dbEvent, err := w.outboxRepo.GetByID(w.ctx, event.ID.String())
+	if err != nil {
+		log.Printf("Failed to get event %s: %v", event.ID, err)
+		return
+	}
+
+	if dbEvent.Status == models.OutboxStatusPublished {
+		log.Printf("Event %s already published, skipping", event.ID)
+		return
+	}
+
+	if dbEvent.Status == models.OutboxStatusFailed && dbEvent.RetryCount >= w.config.Worker.MaxRetries {
+		log.Printf("Event %s already failed with max retries, skipping", event.ID)
+		return
+	}
+
 	if err := w.publishEvent(event); err != nil {
 		log.Printf("Failed to publish event %s: %v", event.ID, err)
 		w.handlePublishError(event, err)
 		return
 	}
 
-	if err := w.outboxRepo.MarkAsPublished(w.ctx, event.ID.String()); err != nil {
+	if err := w.outboxRepo.MarkAsPublishedWithLock(w.ctx, event.ID.String()); err != nil {
 		log.Printf("Failed to mark event %s as published: %v", event.ID, err)
 		return
 	}
@@ -212,16 +229,28 @@ func (w *OutboxWorker) publishEvent(event *models.OutboxEvent) error {
 
 // handlePublishError handles publish errors
 func (w *OutboxWorker) handlePublishError(event *models.OutboxEvent, err error) {
-	if event.RetryCount < w.config.Worker.MaxRetries {
+	dbEvent, err := w.outboxRepo.GetByID(w.ctx, event.ID.String())
+	if err != nil {
+		log.Printf("Failed to get event %s for error handling: %v", event.ID, err)
+		return
+	}
+
+	if dbEvent.RetryCount < w.config.Worker.MaxRetries {
 		log.Printf("Event %s will be retried (attempt %d/%d)",
-			event.ID, event.RetryCount+1, w.config.Worker.MaxRetries)
+			event.ID, dbEvent.RetryCount+1, w.config.Worker.MaxRetries)
+
+		errorMsg := fmt.Sprintf("Failed to publish (attempt %d/%d): %v",
+			dbEvent.RetryCount+1, w.config.Worker.MaxRetries, err)
+		if markErr := w.outboxRepo.MarkAsFailedWithLock(w.ctx, event.ID.String(), errorMsg); markErr != nil {
+			log.Printf("Failed to mark event %s as failed: %v", event.ID, markErr)
+		}
 		return
 	}
 
 	errorMsg := fmt.Sprintf("Failed to publish after %d attempts: %v",
 		w.config.Worker.MaxRetries, err)
 
-	if markErr := w.outboxRepo.MarkAsFailed(w.ctx, event.ID.String(), errorMsg); markErr != nil {
+	if markErr := w.outboxRepo.MarkAsFailedWithLock(w.ctx, event.ID.String(), errorMsg); markErr != nil {
 		log.Printf("Failed to mark event %s as failed: %v", event.ID, markErr)
 	}
 }
