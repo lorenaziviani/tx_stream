@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,10 +25,20 @@ type OutboxWorker struct {
 	config        *config.Config
 	ctx           context.Context
 	cancel        context.CancelFunc
+
+	eventChan    chan *models.OutboxEvent
+	workerWg     sync.WaitGroup
+	workerCount  int
+	shutdownChan chan struct{}
 }
 
 func NewOutboxWorker(outboxRepo repositories.OutboxRepository, kafkaProducer kafka.EventProducer, cfg *config.Config) *OutboxWorker {
 	ctx, cancel := context.WithCancel(context.Background())
+
+	workerCount := cfg.Worker.Concurrency
+	if workerCount <= 0 {
+		workerCount = 1
+	}
 
 	return &OutboxWorker{
 		outboxRepo:    outboxRepo,
@@ -35,20 +46,25 @@ func NewOutboxWorker(outboxRepo repositories.OutboxRepository, kafkaProducer kaf
 		config:        cfg,
 		ctx:           ctx,
 		cancel:        cancel,
+		eventChan:     make(chan *models.OutboxEvent, workerCount*2), // Buffer for 2x worker count
+		workerCount:   workerCount,
+		shutdownChan:  make(chan struct{}),
 	}
 }
 
-// Start starts the outbox worker
+// Start starts the outbox worker with worker pool
 func (w *OutboxWorker) Start() {
 	log.Println("Starting Outbox Worker...")
-	log.Printf("Configuration: polling=%v, batch_size=%d, max_retries=%d",
-		w.config.Worker.PollingInterval, w.config.Worker.BatchSize, w.config.Worker.MaxRetries)
+	log.Printf("Configuration: polling=%v, batch_size=%d, max_retries=%d, concurrency=%d",
+		w.config.Worker.PollingInterval, w.config.Worker.BatchSize, w.config.Worker.MaxRetries, w.workerCount)
 
 	if w.kafkaProducer.IsConnected() {
 		log.Printf("Kafka producer connected to brokers: %v", w.kafkaProducer.GetConfig().GetKafkaBrokers())
 	} else {
 		log.Println("Kafka producer not connected - running in simulation mode")
 	}
+
+	w.startWorkerPool()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -64,11 +80,54 @@ func (w *OutboxWorker) Start() {
 func (w *OutboxWorker) Stop() {
 	w.cancel()
 
+	close(w.shutdownChan)
+
+	log.Printf("Waiting for %d workers to finish...", w.workerCount)
+	w.workerWg.Wait()
+
+	close(w.eventChan)
+
 	if err := w.kafkaProducer.Close(); err != nil {
 		log.Printf("Error closing Kafka producer: %v", err)
 	}
 
 	log.Println("Outbox Worker stopped")
+}
+
+// startWorkerPool starts the worker pool
+func (w *OutboxWorker) startWorkerPool() {
+	log.Printf("Starting worker pool with %d workers", w.workerCount)
+
+	for i := 0; i < w.workerCount; i++ {
+		w.workerWg.Add(1)
+		go w.worker(i)
+	}
+}
+
+// worker is a single worker goroutine
+func (w *OutboxWorker) worker(id int) {
+	defer w.workerWg.Done()
+
+	log.Printf("Worker %d started", id)
+
+	for {
+		select {
+		case <-w.ctx.Done():
+			log.Printf("Worker %d: context cancelled", id)
+			return
+		case <-w.shutdownChan:
+			log.Printf("Worker %d: shutdown signal received", id)
+			return
+		case event, ok := <-w.eventChan:
+			if !ok {
+				log.Printf("Worker %d: event channel closed", id)
+				return
+			}
+
+			log.Printf("Worker %d: processing event %s", id, event.ID)
+			w.processEvent(event)
+		}
+	}
 }
 
 // pollingLoop starts the polling loop
@@ -87,7 +146,7 @@ func (w *OutboxWorker) pollingLoop() {
 	}
 }
 
-// processPendingEvents processes the pending events
+// processPendingEvents processes the pending events by sending them to the worker pool
 func (w *OutboxWorker) processPendingEvents() {
 	events, err := w.outboxRepo.GetPendingEvents(w.ctx, w.config.Worker.BatchSize)
 	if err != nil {
@@ -100,10 +159,19 @@ func (w *OutboxWorker) processPendingEvents() {
 		return
 	}
 
-	log.Printf("Found %d pending events", len(events))
+	log.Printf("Found %d pending events, sending to worker pool", len(events))
 
 	for _, event := range events {
-		w.processEvent(&event)
+		select {
+		case <-w.ctx.Done():
+			log.Println("Context cancelled, stopping event distribution")
+			return
+		case w.eventChan <- &event:
+			// Event sent to worker pool
+		default:
+			// Channel is full, log warning but continue
+			log.Printf("Warning: event channel is full, event %s will be processed in next cycle", event.ID)
+		}
 	}
 }
 

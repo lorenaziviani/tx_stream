@@ -82,11 +82,13 @@ make build-worker
 
 - 🔄 **Polling automático**: Verifica eventos pendentes a cada 5 segundos
 - 📦 **Processamento em lote**: Processa até 10 eventos por vez
+- 🚀 **Worker Pool**: Processamento paralelo com pool configurável de workers
 - 📋 **Log detalhado**: Exibe informações completas dos eventos
 - 🛑 **Graceful shutdown**: Para corretamente com Ctrl+C
 - 📨 **Publicação Kafka**: Publica eventos no tópico `txstream.events`
 - 🔄 **Retry automático**: Reintenta eventos falhados até 3 vezes
 - ✅ **Status tracking**: Marca eventos como `published` ou `failed`
+- 🔒 **Idempotência**: Garante que eventos não sejam processados duplicadamente
 
 ### 🧪 Testando a API
 
@@ -211,7 +213,8 @@ txstream/
 - **HTTP Router**: Gorilla Mux
 - **Configuração**: Viper
 - **Testes**: Testify
-- **Mocks**: Mockery
+- **Mocks**: Mockery v3
+- **Concorrência**: sync.WaitGroup, channels, goroutines
 
 ## 📊 Diagramas
 
