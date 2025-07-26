@@ -1,6 +1,8 @@
 package models
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -20,6 +22,31 @@ type Event struct {
 }
 
 type EventJSON map[string]interface{}
+
+// Value implements the driver.Valuer interface
+func (ej EventJSON) Value() (interface{}, error) {
+	if ej == nil {
+		return nil, nil
+	}
+	return ej, nil
+}
+
+// Scan implements the sql.Scanner interface
+func (ej *EventJSON) Scan(value interface{}) error {
+	if value == nil {
+		*ej = nil
+		return nil
+	}
+
+	switch v := value.(type) {
+	case []byte:
+		return json.Unmarshal(v, ej)
+	case string:
+		return json.Unmarshal([]byte(v), ej)
+	default:
+		return fmt.Errorf("cannot scan %T into EventJSON", value)
+	}
+}
 
 // Event Types
 const (
@@ -47,6 +74,28 @@ func (e *Event) BeforeCreate(tx *gorm.DB) error {
 	}
 	if e.CreatedAt.IsZero() {
 		e.CreatedAt = time.Now()
+	}
+
+	if err := e.Validate(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Validate validates the Event
+func (e *Event) Validate() error {
+	if e.AggregateID == "" {
+		return fmt.Errorf("aggregate_id is required")
+	}
+	if e.AggregateType == "" {
+		return fmt.Errorf("aggregate_type is required")
+	}
+	if e.EventType == "" {
+		return fmt.Errorf("event_type is required")
+	}
+	if e.EventData == nil {
+		return fmt.Errorf("event_data is required")
 	}
 	return nil
 }

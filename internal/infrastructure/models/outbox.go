@@ -1,6 +1,8 @@
 package models
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,6 +34,31 @@ const (
 
 type JSON map[string]interface{}
 
+// Value implements the driver.Valuer interface
+func (j JSON) Value() (interface{}, error) {
+	if j == nil {
+		return nil, nil
+	}
+	return j, nil
+}
+
+// Scan implements the sql.Scanner interface
+func (j *JSON) Scan(value interface{}) error {
+	if value == nil {
+		*j = nil
+		return nil
+	}
+
+	switch v := value.(type) {
+	case []byte:
+		return json.Unmarshal(v, j)
+	case string:
+		return json.Unmarshal([]byte(v), j)
+	default:
+		return fmt.Errorf("cannot scan %T into JSON", value)
+	}
+}
+
 func (OutboxEvent) TableName() string {
 	return "outbox"
 }
@@ -43,6 +70,28 @@ func (oe *OutboxEvent) BeforeCreate(tx *gorm.DB) error {
 	}
 	if oe.CreatedAt.IsZero() {
 		oe.CreatedAt = time.Now()
+	}
+
+	if err := oe.Validate(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Validate validates the OutboxEvent
+func (oe *OutboxEvent) Validate() error {
+	if oe.AggregateID == "" {
+		return fmt.Errorf("aggregate_id is required")
+	}
+	if oe.AggregateType == "" {
+		return fmt.Errorf("aggregate_type is required")
+	}
+	if oe.EventType == "" {
+		return fmt.Errorf("event_type is required")
+	}
+	if oe.EventData == nil {
+		return fmt.Errorf("event_data is required")
 	}
 	return nil
 }

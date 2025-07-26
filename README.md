@@ -108,6 +108,46 @@ curl http://localhost:8080/health
 curl http://localhost:8080/api/v1/orders
 ```
 
+## 🧪 Testes
+
+### **Testes de Integração**
+
+Os testes de integração validam a transação ACID e o padrão Outbox:
+
+```bash
+# Executar testes de integração
+make test-integration
+
+# Executar teste específico
+go test -v ./tests/integration/ -run TestOrderTransactionWithOutbox
+```
+
+### **Cenários Testados**
+
+- ✅ **Transação bem-sucedida**: Order + OutboxEvent criados
+- ✅ **Falha no outbox**: Rollback completo da transação
+- ✅ **Pedido duplicado**: Retorna conflito (409)
+- ✅ **Request inválido**: Validação antes da transação
+- ✅ **Transações concorrentes**: Isolamento garantido
+- ✅ **Integridade de dados**: Dados consistentes entre Order e Event
+
+### **Todos os Testes**
+
+```bash
+# Executar todos os testes
+make test
+
+# Executar testes com cobertura
+make test-coverage
+
+# Executar apenas testes unitários
+make test-unit
+```
+
+### **Documentação Detalhada**
+
+Veja [docs/testing.md](docs/testing.md) para detalhes completos sobre a estratégia de testes.
+
 ## 📁 Estrutura do Projeto
 
 ```

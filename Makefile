@@ -25,6 +25,14 @@ test: ## Run tests
 	@echo "Running tests..."
 	go test -v ./...
 
+test-integration: ## Run integration tests
+	@echo "Running integration tests..."
+	go test -v ./tests/integration/...
+
+test-unit: ## Run unit tests
+	@echo "Running unit tests..."
+	go test -v ./internal/...
+
 test-coverage: ## Run tests with coverage
 	@echo "Running tests with coverage..."
 	go test -v -coverprofile=coverage.out ./...

@@ -44,15 +44,10 @@ func (uc *orderUseCase) CreateOrder(ctx context.Context, request *dto.CreateOrde
 		return nil, fmt.Errorf("validation error: %w", err)
 	}
 
-	existingOrder, err := uc.orderRepo.GetByOrderNumber(ctx, request.OrderNumber)
-	if err == nil && existingOrder != nil {
-		return nil, fmt.Errorf("order with number %s already exists", request.OrderNumber)
-	}
-
 	order := uc.createOrderFromRequest(request)
 
 	var orderResponse *dto.OrderResponse
-	err = uc.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	err := uc.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(order).Error; err != nil {
 			return fmt.Errorf("failed to create order: %w", err)
 		}

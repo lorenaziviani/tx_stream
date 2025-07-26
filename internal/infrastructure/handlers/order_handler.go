@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gorilla/mux"
 
@@ -41,7 +42,9 @@ func (h *OrderHandler) CreateOrderHandler(w http.ResponseWriter, r *http.Request
 			err.Error() == "validation error: order_number is required" ||
 			err.Error() == "validation error: at least one item is required":
 			statusCode = http.StatusBadRequest
-		case err.Error() == "order with number ORD-001 already exists":
+		case strings.Contains(err.Error(), "duplicate key value violates unique constraint") ||
+			strings.Contains(err.Error(), "UNIQUE constraint failed") ||
+			strings.Contains(err.Error(), "order with number") && strings.Contains(err.Error(), "already exists"):
 			statusCode = http.StatusConflict
 		}
 
