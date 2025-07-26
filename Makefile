@@ -40,7 +40,7 @@ test-integration: ## Run integration tests
 
 test-unit: ## Run unit tests
 	@echo "Running unit tests..."
-	go test -v ./internal/...
+	go test -v ./tests/unit/...
 
 test-coverage: ## Run tests with coverage
 	@echo "Running tests with coverage..."

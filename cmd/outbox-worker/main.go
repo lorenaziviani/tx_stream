@@ -20,13 +20,13 @@ import (
 
 type OutboxWorker struct {
 	outboxRepo    repositories.OutboxRepository
-	kafkaProducer *kafka.Producer
+	kafkaProducer kafka.EventProducer
 	config        *config.Config
 	ctx           context.Context
 	cancel        context.CancelFunc
 }
 
-func NewOutboxWorker(outboxRepo repositories.OutboxRepository, kafkaProducer *kafka.Producer, cfg *config.Config) *OutboxWorker {
+func NewOutboxWorker(outboxRepo repositories.OutboxRepository, kafkaProducer kafka.EventProducer, cfg *config.Config) *OutboxWorker {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &OutboxWorker{

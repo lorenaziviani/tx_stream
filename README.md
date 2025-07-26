@@ -211,6 +211,7 @@ txstream/
 - **HTTP Router**: Gorilla Mux
 - **Configuração**: Viper
 - **Testes**: Testify
+- **Mocks**: Mockery
 
 ## 📊 Diagramas
 
